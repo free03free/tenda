@@ -102,6 +102,7 @@ class WebPanelActivity : LockedActivity() {
         findViewById<android.view.View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        Prefs.seedBlockDefaults(this)
         setupBlockSwitch()
         // الرجوع يتنقل داخل اللوحة، وعند أول صفحة يُخفي التطبيق دون إغلاقه
         onBackPressedDispatcher.addCallback(this) {
@@ -175,6 +176,24 @@ class WebPanelActivity : LockedActivity() {
     private fun setupBlockSwitch() {
         val sw = findViewById<MaterialSwitch>(R.id.swBlock)
         renderBlock(Prefs.getString(this, "block_state") == "1")
+
+        fun send(want: Boolean) {
+            sw.isEnabled = false
+            lifecycleScope.launch {
+                ModemClient.setBlock(this@WebPanelActivity, want).fold({
+                    renderBlock(want)
+                    android.widget.Toast.makeText(this@WebPanelActivity,
+                        if (want) "تم قطع الإنترنت عن كل الأجهزة عدا المستثناة" else "تمت إعادة الإنترنت للجميع",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }, {
+                    renderBlock(!want)
+                    android.widget.Toast.makeText(this@WebPanelActivity, "فشل الأمر: ${it.message}",
+                        android.widget.Toast.LENGTH_LONG).show()
+                })
+                sw.isEnabled = true
+            }
+        }
+
         sw.setOnCheckedChangeListener { _, want ->
             if (blockSilent) return@setOnCheckedChangeListener
             val key = if (want) "block_on_path" else "block_off_path"
@@ -185,20 +204,17 @@ class WebPanelActivity : LockedActivity() {
                 startActivity(Intent(this, SettingsActivity::class.java))
                 return@setOnCheckedChangeListener
             }
-            sw.isEnabled = false
-            lifecycleScope.launch {
-                ModemClient.setBlock(this@WebPanelActivity, want).fold({
-                    renderBlock(want)
-                    android.widget.Toast.makeText(this@WebPanelActivity,
-                        if (want) "تم قطع الإنترنت عن كل الأجهزة" else "تمت إعادة الإنترنت",
-                        android.widget.Toast.LENGTH_SHORT).show()
-                }, {
-                    renderBlock(!want)
-                    android.widget.Toast.makeText(this@WebPanelActivity, "فشل الأمر: ${it.message}",
-                        android.widget.Toast.LENGTH_LONG).show()
-                })
-                sw.isEnabled = true
+            // تنبيه واحد فقط: لا أجهزة مستثناة، فسيُقطع حتى عن هذا الهاتف وقد لا تستطيع الاستعادة
+            if (want && Exempt.list(this).isEmpty()) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setMessage("لا توجد أجهزة مستثناة. سيُقطع الإنترنت عن الجميع وقد يشمل هذا الهاتف فلا تستطيع إعادته من التطبيق. أضف هاتفك للمستثنين من الإعدادات أولاً. هل تريد المتابعة؟")
+                    .setNegativeButton("إلغاء") { _, _ -> renderBlock(false) }
+                    .setPositiveButton("متابعة") { _, _ -> send(true) }
+                    .setOnCancelListener { renderBlock(false) }
+                    .show()
+                return@setOnCheckedChangeListener
             }
+            send(want)
         }
     }
 

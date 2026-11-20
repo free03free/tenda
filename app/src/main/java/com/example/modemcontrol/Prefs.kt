@@ -32,6 +32,20 @@ object Prefs {
         SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             .generateSecret(PBEKeySpec(p.joinToString("").toCharArray(), salt, 20000, 256)).encoded
 
+    /** يزرع طلبات Tenda الافتراضية (فلتر MAC: قائمة بيضاء للقطع، قائمة سوداء فارغة للاستعادة) مرة واحدة فقط. */
+    fun seedBlockDefaults(c: Context) {
+        if (getString(c, "block_seeded") == "1") return
+        if (getString(c, "block_on_path").isBlank() && getString(c, "block_off_path").isBlank()) {
+            putString(c, "block_on_path", "/goform/setMacFilterCfg")
+            putString(c, "block_on_method", "POST")
+            putString(c, "block_on_body", "macFilterType=white&deviceList={MACS_CR}")
+            putString(c, "block_off_path", "/goform/setMacFilterCfg")
+            putString(c, "block_off_method", "POST")
+            putString(c, "block_off_body", "macFilterType=black&deviceList=")
+        }
+        putString(c, "block_seeded", "1")
+    }
+
     fun hasPattern(c: Context) = getString(c, "pat_hash").isNotEmpty()
 
     fun setPattern(c: Context, p: List<Int>) {

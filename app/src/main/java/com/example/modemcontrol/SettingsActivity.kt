@@ -127,6 +127,7 @@ class SettingsActivity : LockedActivity() {
             etName.text.clear(); etMac.text.clear()
             exemptChanged()
         }
+        Prefs.seedBlockDefaults(this)
         loadBlock()
         findViewById<View>(R.id.btnSaveBlock).setOnClickListener { saveBlock(); toast("تم الحفظ") }
         etIp = findViewById(R.id.etIp); etUser = findViewById(R.id.etUser); etPass = findViewById(R.id.etPass)
