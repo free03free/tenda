@@ -65,9 +65,76 @@ class SettingsActivity : LockedActivity() {
         Prefs.putString(this, "reboot_body", etBody.text.toString())
     }
 
+    private val blockFields = listOf(
+        Triple("block_on", R.id.etOnPath, Pair(R.id.etOnMethod, R.id.etOnBody)),
+        Triple("block_off", R.id.etOffPath, Pair(R.id.etOffMethod, R.id.etOffBody)))
+
+    private fun loadBlock() {
+        for ((k, path, mb) in blockFields) {
+            findViewById<EditText>(path).setText(Prefs.getString(this, "${k}_path"))
+            findViewById<EditText>(mb.first).setText(Prefs.getString(this, "${k}_method", "GET"))
+            findViewById<EditText>(mb.second).setText(Prefs.getString(this, "${k}_body"))
+        }
+    }
+
+    private fun saveBlock() {
+        for ((k, path, mb) in blockFields) {
+            Prefs.putString(this, "${k}_path", findViewById<EditText>(path).text.toString().trim())
+            Prefs.putString(this, "${k}_method",
+                if (findViewById<EditText>(mb.first).text.toString().trim().equals("POST", true)) "POST" else "GET")
+            Prefs.putString(this, "${k}_body", findViewById<EditText>(mb.second).text.toString())
+        }
+    }
+
+    private fun renderExempt() {
+        val box = findViewById<android.widget.LinearLayout>(R.id.exemptList)
+        box.removeAllViews()
+        val list = Exempt.list(this)
+        if (list.isEmpty()) {
+            box.addView(TextView(this).apply { text = "لا توجد أجهزة مستثناة"; alpha = 0.6f })
+            return
+        }
+        for (d in list) {
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            row.addView(TextView(this).apply { text = "${d.name}\n${d.mac}"; textDirection = View.TEXT_DIRECTION_LTR },
+                android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(com.google.android.material.button.MaterialButton(this, null, android.R.attr.borderlessButtonStyle).apply {
+                text = "حذف"
+                setOnClickListener { Exempt.remove(this@SettingsActivity, d.mac); exemptChanged() }
+            })
+            box.addView(row)
+        }
+    }
+
+    /** بعد أي تعديل للقائمة: إن كان القطع مفعّلاً يُعاد إرسال طلب القطع ليشمل الاستثناءات الجديدة. */
+    private fun exemptChanged() {
+        renderExempt()
+        if (Prefs.getString(this, "block_state") != "1") return
+        saveBlock()
+        lifecycleScope.launch {
+            ModemClient.setBlock(this@SettingsActivity, true)
+                .fold({ toast("حُدّث القطع مع الاستثناءات") }, { toast("فشل تحديث القطع: ${it.message}") })
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        renderExempt()
+        findViewById<View>(R.id.btnAddExempt).setOnClickListener {
+            val etName = findViewById<EditText>(R.id.etExName)
+            val etMac = findViewById<EditText>(R.id.etExMac)
+            if (!Exempt.add(this, etName.text.toString(), etMac.text.toString())) {
+                etMac.error = "عنوان MAC غير صالح"; return@setOnClickListener
+            }
+            etName.text.clear(); etMac.text.clear()
+            exemptChanged()
+        }
+        loadBlock()
+        findViewById<View>(R.id.btnSaveBlock).setOnClickListener { saveBlock(); toast("تم الحفظ") }
         etIp = findViewById(R.id.etIp); etUser = findViewById(R.id.etUser); etPass = findViewById(R.id.etPass)
         tvStatus = findViewById(R.id.tvStatus); tvLock = findViewById(R.id.tvLock); dot = findViewById(R.id.statusDot)
         val etPath = findViewById<EditText>(R.id.etPath)
@@ -115,6 +182,7 @@ class SettingsActivity : LockedActivity() {
         findViewById<View>(R.id.btnSaveReboot).setOnClickListener { saveReboot(etPath, etMethod, etBody); toast("تم الحفظ") }
         findViewById<View>(R.id.btnDone).setOnClickListener {
             saveReboot(etPath, etMethod, etBody)
+            saveBlock()
             if (save()) finish()
         }
     }

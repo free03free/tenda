@@ -19,6 +19,9 @@ import org.json.JSONArray
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.activity.addCallback
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.materialswitch.MaterialSwitch
+import kotlinx.coroutines.launch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import org.json.JSONObject
 
@@ -166,6 +169,7 @@ class WebPanelActivity : LockedActivity() {
         findViewById<android.view.View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+        setupBlockSwitch()
         // الرجوع يتنقل داخل اللوحة، وعند أول صفحة يُخفي التطبيق دون إغلاقه
         onBackPressedDispatcher.addCallback(this) {
             if (web.canGoBack()) web.goBack() else moveTaskToBack(true)
@@ -175,6 +179,7 @@ class WebPanelActivity : LockedActivity() {
     /** تُستدعى بعد فتح القفل: تحمّل اللوحة فقط إذا تغيّر الـ IP، وإلا تبقى الصفحة كما هي. */
     override fun onReady() {
         val modeChanged = applyMode()
+        renderBlock(Prefs.getString(this, "block_state") == "1")
         applyTranslate()
         val host = ModemClient.normalize(Prefs.getString(this, "ip"))
         if (host == null) {
@@ -224,6 +229,45 @@ class WebPanelActivity : LockedActivity() {
             })(${JSONObject.quote(Prefs.getString(this, "user"))},${JSONObject.quote(pass)})
         """.trimIndent()
         v.evaluateJavascript(js) { if (it?.contains("ok") == true) attempts++ }
+    }
+
+    /** مفتاح قطع الإنترنت: يرسل طلب القطع/الاستعادة المحدد في الإعدادات، ويتراجع عند الفشل. */
+    private var blockSilent = false
+    private fun renderBlock(on: Boolean) {
+        val sw = findViewById<MaterialSwitch>(R.id.swBlock)
+        blockSilent = true; sw.isChecked = on; blockSilent = false
+        findViewById<TextView>(R.id.tvBlock).text =
+            if (on) "الإنترنت مقطوع عن كل الأجهزة" else "قطع الإنترنت عن كل الأجهزة"
+    }
+
+    private fun setupBlockSwitch() {
+        val sw = findViewById<MaterialSwitch>(R.id.swBlock)
+        renderBlock(Prefs.getString(this, "block_state") == "1")
+        sw.setOnCheckedChangeListener { _, want ->
+            if (blockSilent) return@setOnCheckedChangeListener
+            val key = if (want) "block_on_path" else "block_off_path"
+            if (Prefs.getString(this, key).isBlank()) {
+                renderBlock(!want)
+                android.widget.Toast.makeText(this, "حدّد طلبات القطع والاستعادة من الإعدادات أولاً",
+                    android.widget.Toast.LENGTH_LONG).show()
+                startActivity(Intent(this, SettingsActivity::class.java))
+                return@setOnCheckedChangeListener
+            }
+            sw.isEnabled = false
+            lifecycleScope.launch {
+                ModemClient.setBlock(this@WebPanelActivity, want).fold({
+                    renderBlock(want)
+                    android.widget.Toast.makeText(this@WebPanelActivity,
+                        if (want) "تم قطع الإنترنت عن كل الأجهزة" else "تمت إعادة الإنترنت",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }, {
+                    renderBlock(!want)
+                    android.widget.Toast.makeText(this@WebPanelActivity, "فشل الأمر: ${it.message}",
+                        android.widget.Toast.LENGTH_LONG).show()
+                })
+                sw.isEnabled = true
+            }
+        }
     }
 
     override fun onDestroy() {

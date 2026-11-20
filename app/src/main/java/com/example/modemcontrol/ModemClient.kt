@@ -2,6 +2,7 @@ package com.example.modemcontrol
 
 import android.util.Base64
 import android.util.Patterns
+import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -24,24 +25,52 @@ object ModemClient {
             if (user.isNotBlank())
                 c.setRequestProperty("Authorization", "Basic " +
                     Base64.encodeToString("$user:$pass".toByteArray(), Base64.NO_WRAP))
+            // نمرّر جلسة لوحة المودم (الكوكيز) وReferer لأن أغلب المودمات تتحقق منهما
+            val origin = URL(url).let { u -> "${u.protocol}://${u.authority}" }
+            c.setRequestProperty("Referer", "$origin/")
+            c.setRequestProperty("Origin", origin)
+            CookieManager.getInstance().getCookie(origin)?.takeIf { it.isNotBlank() }
+                ?.let { c.setRequestProperty("Cookie", it) }
             if (method == "POST" && body != null) {
                 c.doOutput = true
-                c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                val json = body.trimStart().let { it.startsWith("{") || it.startsWith("[") }
+                c.setRequestProperty("Content-Type",
+                    if (json) "application/json" else "application/x-www-form-urlencoded")
                 c.outputStream.use { it.write(body.toByteArray()) }
             }
             return c.responseCode
         } finally { c.disconnect() }
     }
 
-    suspend fun check(host: String, user: String, pass: String) = withContext(Dispatchers.IO) {
-        runCatching { send("http://$host", "GET", user, pass, null) }
-    }
-
-    suspend fun reboot(host: String, path: String, method: String, body: String, user: String, pass: String) =
+    /** طلب عام للمودم: المسار + GET/POST + جسم اختياري. */
+    suspend fun call(host: String, path: String, method: String, body: String, user: String, pass: String) =
         withContext(Dispatchers.IO) {
             runCatching {
                 val p = if (path.startsWith("/")) path else "/$path"
                 send("http://$host$p", if (method.equals("POST", true)) "POST" else "GET", user, pass, body.ifBlank { null })
             }
         }
+
+    suspend fun check(host: String, user: String, pass: String) = withContext(Dispatchers.IO) {
+        runCatching { send("http://$host", "GET", user, pass, null) }
+    }
+
+    suspend fun reboot(host: String, path: String, method: String, body: String, user: String, pass: String) =
+        call(host, path, method, body, user, pass)
+
+    /** مفتاح قطع الإنترنت: on=true يقطع عن الجميع، false يعيده. يُرجع Result<Int> (كود HTTP). */
+    suspend fun setBlock(c: android.content.Context, on: Boolean): Result<Int> {
+        val k = if (on) "block_on" else "block_off"
+        val path = Exempt.apply(c, Prefs.getString(c, "${k}_path"))
+        if (path.isBlank()) return Result.failure(IllegalStateException("not_configured"))
+        val host = normalize(Prefs.getString(c, "ip"))
+            ?: return Result.failure(IllegalStateException("bad_ip"))
+        val r = call(host, path, Prefs.getString(c, "${k}_method", "GET"), Exempt.apply(c, Prefs.getString(c, "${k}_body")),
+            Prefs.getString(c, "user"), Prefs.getString(c, "pass"))
+        return r.mapCatching { code ->
+            if (code !in 200..399) throw IllegalStateException("HTTP $code")
+            Prefs.putString(c, "block_state", if (on) "1" else "0")
+            code
+        }
+    }
 }
