@@ -11,6 +11,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
 import kotlinx.coroutines.launch
 
 /** شاشة الإعدادات الوحيدة: بيانات المودم، اختبار الاتصال، إعادة التشغيل، قفل النمط. */
@@ -80,6 +81,18 @@ class SettingsActivity : LockedActivity() {
             val sw = findViewById<MaterialSwitch>(id)
             sw.isChecked = Prefs.getString(this, key, def) == "1"
             sw.setOnCheckedChangeListener { _, c -> Prefs.putString(this, key, if (c) "1" else "0") }
+        }
+
+        val slider = findViewById<Slider>(R.id.sbWidth)
+        val tvWidth = findViewById<TextView>(R.id.tvWidth)
+        fun widthLabel(w: Int) = "عرض الصفحة: $w بكسل (الرقم الأقل = حجم أكبر)"
+        val saved = (Prefs.getString(this, "desktop_width", "900").toIntOrNull() ?: 900).coerceIn(600, 1400)
+        val w0 = (saved - 600) / 50 * 50 + 600
+        slider.value = w0.toFloat()
+        tvWidth.text = widthLabel(w0)
+        slider.addOnChangeListener { _, v, _ ->
+            tvWidth.text = widthLabel(v.toInt())
+            Prefs.putString(this, "desktop_width", v.toInt().toString())
         }
 
         findViewById<View>(R.id.btnSave).setOnClickListener { if (save()) setStatus("تم حفظ البيانات", R.color.success) }

@@ -98,6 +98,11 @@
                 <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDesktop"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="عرض نسخة سطح المكتب (ملائمة لحجم الهاتف)" />
+                <TextView android:id="@+id/tvWidth" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" android:alpha="0.75" />
+                <com.google.android.material.slider.Slider android:id="@+id/sbWidth"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:valueFrom="600" android:valueTo="1400" android:stepSize="50" android:value="900" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

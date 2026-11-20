@@ -26,10 +26,27 @@ class WebPanelActivity : LockedActivity() {
     private var desktopApplied: Boolean? = null
     private var defaultUa = ""
     private val desktopUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    // يفرض عرض صفحة 1100px فيصغّرها WebView تلقائياً لتناسب عرض الهاتف، مع إمكانية التكبير بالإصبعين
-    private val viewportJs = """(function(){var m=document.querySelector('meta[name=viewport]');
-        if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}
-        m.content='width=1100';})()"""
+    private var widthApplied = 0
+
+    private fun desktopWidth() =
+        (Prefs.getString(this, "desktop_width", "900").toIntOrNull() ?: 900).coerceIn(600, 1400)
+
+    // يفرض عرض صفحة ثابتاً (من الإعدادات) فيناسبه WebView مع شاشة الهاتف، والتكبير بالإصبعين متاح
+    private fun viewportJs() = """(function(){var m=document.querySelector('meta[name=viewport]');
+        if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);window.__mcVp=null;}
+        else if(window.__mcVp===undefined){window.__mcVp=m.content;}
+        m.content='width=${desktopWidth()}';window.dispatchEvent(new Event('resize'));})()"""
+
+    // يعيد إعداد العرض الأصلي للصفحة (أو عرض الجهاز) دون إعادة تحميلها
+    private val viewportOffJs = """(function(){var m=document.querySelector('meta[name=viewport]');
+        if(!m)return;
+        m.content=(window.__mcVp===undefined||window.__mcVp===null)?'width=device-width, initial-scale=1':window.__mcVp;
+        window.dispatchEvent(new Event('resize'));})()"""
+
+    /** تطبيق تغيير الوضع على الصفحة الحالية مباشرة، بدون reload ودون الرجوع لأول صفحة. */
+    private fun applyLive() {
+        web.evaluateJavascript(if (desktopApplied == true) viewportJs() else viewportOffJs, null)
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,9 +74,13 @@ class WebPanelActivity : LockedActivity() {
                 if (u.isNotBlank()) h.proceed(u, Prefs.getString(this@WebPanelActivity, "pass")) else h.cancel()
             }
 
+            override fun onPageCommitVisible(v: WebView, url: String?) {
+                if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
+            }
+
             override fun onPageFinished(v: WebView, url: String?) {
                 CookieManager.getInstance().flush()
-                if (desktopApplied == true) v.evaluateJavascript(viewportJs, null)
+                if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
                 val host = loadedHost ?: return
                 if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
                     Prefs.putString(this@WebPanelActivity, "last_url", url)
@@ -92,7 +113,7 @@ class WebPanelActivity : LockedActivity() {
             if (!askedSettings) { askedSettings = true; startActivity(Intent(this, SettingsActivity::class.java)) }
             return
         }
-        if (host == loadedHost) { if (modeChanged) web.reload(); return }
+        if (host == loadedHost) { if (modeChanged) applyLive(); return }
         loadedHost = host
         attempts = 0
         findViewById<TextView>(R.id.tvHost).text = host
@@ -105,10 +126,12 @@ class WebPanelActivity : LockedActivity() {
     private fun applyMode(): Boolean {
         val desktop = Prefs.getString(this, "desktop_mode", "0") == "1"
         findViewById<android.view.View>(R.id.btnDesktop).alpha = if (desktop) 1f else 0.5f
-        if (desktop == desktopApplied) return false
+        val w = desktopWidth()
+        if (desktop == desktopApplied && (!desktop || w == widthApplied)) return false
         desktopApplied = desktop
+        widthApplied = w
         web.settings.userAgentString = if (desktop) desktopUa else defaultUa
-        web.settings.useWideViewPort = desktop
+        web.settings.useWideViewPort = true
         web.settings.loadWithOverviewMode = desktop
         return true
     }
