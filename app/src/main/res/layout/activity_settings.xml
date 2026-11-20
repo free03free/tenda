@@ -1,11 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="20dp">
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="الإعدادات" android:textAppearance="?attr/textAppearanceHeadlineSmall" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="اضبط بيانات المودم وقفل التطبيق" android:alpha="0.7" android:layout_marginBottom="20dp" />
+        <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Filled"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:gravity="center_vertical" android:orientation="horizontal" android:padding="16dp">
+                <View android:id="@+id/statusDot" android:layout_width="12dp" android:layout_height="12dp"
+                    android:background="@drawable/shape_dot" />
+                <TextView android:id="@+id/tvStatus" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginStart="12dp"
+                    android:text="لم يتم اختبار الاتصال بعد" android:textAppearance="?attr/textAppearanceBodyLarge" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Outlined"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="بيانات الاتصال" android:textAppearance="?attr/textAppearanceTitleMedium" />
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:hint="عنوان IP">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etIp"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textUri" android:textDirection="ltr" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp" android:hint="اسم المستخدم">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etUser"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:textDirection="ltr" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp" android:hint="كلمة المرور" app:endIconMode="password_toggle">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etPass"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:textDirection="ltr" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnSave"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="حفظ البيانات" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:orientation="horizontal">
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnTest"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1"
+                android:layout_marginEnd="5dp" android:text="اختبار" app:icon="@drawable/ic_wifi" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnReboot"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1"
+                android:layout_marginStart="5dp" android:text="إعادة تشغيل" app:icon="@drawable/ic_power" />
+        </LinearLayout>
         <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp">
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -30,10 +92,7 @@
                 android:orientation="vertical" android:padding="16dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="لوحة المودم" android:textAppearance="?attr/textAppearanceTitleMedium" />
-                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swAutoOpen"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp" android:text="فتح اللوحة تلقائياً عند تشغيل التطبيق" />
-                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swAutoLogin"
+                        <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swAutoLogin"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="تسجيل الدخول تلقائياً في اللوحة" />
             </LinearLayout>
@@ -74,5 +133,9 @@
                     android:layout_marginTop="14dp" android:text="حفظ" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnDone"
+            android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="20dp"
+            android:text="حفظ والعودة للوحة المودم" app:icon="@drawable/ic_router" />
     </LinearLayout>
 </ScrollView>

@@ -1,6 +1,7 @@
 package com.example.modemcontrol
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.CookieManager
@@ -8,21 +9,26 @@ import android.webkit.HttpAuthHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.TextView
 import androidx.activity.addCallback
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import org.json.JSONObject
 
-/** لوحة المودم داخل التطبيق: تحفظ الجلسة (Cookies) وتسجّل الدخول تلقائياً. */
+/**
+ * الشاشة الرئيسية: لوحة المودم. تبقى مفتوحة عند الخروج من التطبيق (زر الرجوع يُخفيه فقط)،
+ * وتحفظ الجلسة وآخر صفحة، وتسجّل الدخول تلقائياً.
+ */
 class WebPanelActivity : LockedActivity() {
+    private lateinit var web: WebView
+    private var loadedHost: String? = null
+    private var askedSettings = false
     private var attempts = 0
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_web)
-        val host = ModemClient.normalize(Prefs.getString(this, "ip"))
-        if (host == null) { finish(); return }
-        val web = findViewById<WebView>(R.id.web)
+        web = findViewById(R.id.web)
         val bar = findViewById<LinearProgressIndicator>(R.id.progress)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
@@ -42,20 +48,43 @@ class WebPanelActivity : LockedActivity() {
 
             override fun onPageFinished(v: WebView, url: String?) {
                 CookieManager.getInstance().flush()
-                autoLogin(v, url, host)
+                val host = loadedHost ?: return
+                if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
+                    Prefs.putString(this@WebPanelActivity, "last_url", url)
+                    autoLogin(v, url, host)
+                }
             }
         }
-        onBackPressedDispatcher.addCallback(this) {
-            if (web.canGoBack()) web.goBack() else this@WebPanelActivity.finish()
+        findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { web.reload() }
+        findViewById<android.view.View>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
-        web.loadUrl("http://$host")
+        // الرجوع يتنقل داخل اللوحة، وعند أول صفحة يُخفي التطبيق دون إغلاقه
+        onBackPressedDispatcher.addCallback(this) {
+            if (web.canGoBack()) web.goBack() else moveTaskToBack(true)
+        }
     }
 
-    /** يملأ حقل كلمة المرور ويضغط زر الدخول، فقط داخل صفحات المودم نفسه ولمحاولتين كحد أقصى. */
-    private fun autoLogin(v: WebView, url: String?, host: String) {
+    /** تُستدعى بعد فتح القفل: تحمّل اللوحة فقط إذا تغيّر الـ IP، وإلا تبقى الصفحة كما هي. */
+    override fun onReady() {
+        val host = ModemClient.normalize(Prefs.getString(this, "ip"))
+        if (host == null) {
+            if (!askedSettings) { askedSettings = true; startActivity(Intent(this, SettingsActivity::class.java)) }
+            return
+        }
+        if (host == loadedHost) return
+        loadedHost = host
+        attempts = 0
+        findViewById<TextView>(R.id.tvHost).text = host
+        val last = Prefs.getString(this, "last_url")
+        val sameHost = last.isNotEmpty() && Uri.parse(last).host == host.substringBefore(':')
+        web.loadUrl(if (sameHost) last else "http://$host")
+    }
+
+    /** يملأ كلمة المرور ويضغط زر الدخول، فقط داخل صفحات المودم نفسه ولمحاولتين كحد أقصى. */
+    private fun autoLogin(v: WebView, url: String, host: String) {
         val pass = Prefs.getString(this, "pass")
         if (Prefs.getString(this, "auto_login", "1") != "1" || pass.isBlank() || attempts >= 2) return
-        if (Uri.parse(url ?: return).host != host.substringBefore(':')) return
         val js = """
             (function(u,p){
               var pw=document.querySelector('input[type=password]');

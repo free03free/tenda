@@ -10,14 +10,16 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.ModemControl">
-        <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
+        <activity android:name=".WebPanelActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".SettingsActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
-        <activity android:name=".WebPanelActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
-        <activity android:name=".PatternActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
+        <activity android:name=".SettingsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
+        <activity android:name=".PatternActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
     </application>
 </manifest>
