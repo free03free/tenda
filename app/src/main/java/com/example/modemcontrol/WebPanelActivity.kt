@@ -23,6 +23,13 @@ class WebPanelActivity : LockedActivity() {
     private var loadedHost: String? = null
     private var askedSettings = false
     private var attempts = 0
+    private var desktopApplied: Boolean? = null
+    private var defaultUa = ""
+    private val desktopUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    // يفرض عرض صفحة 1100px فيصغّرها WebView تلقائياً لتناسب عرض الهاتف، مع إمكانية التكبير بالإصبعين
+    private val viewportJs = """(function(){var m=document.querySelector('meta[name=viewport]');
+        if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}
+        m.content='width=1100';})()"""
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,6 +39,10 @@ class WebPanelActivity : LockedActivity() {
         val bar = findViewById<LinearProgressIndicator>(R.id.progress)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
+        defaultUa = web.settings.userAgentString
+        web.settings.setSupportZoom(true)
+        web.settings.builtInZoomControls = true
+        web.settings.displayZoomControls = false
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
 
         web.webChromeClient = object : WebChromeClient() {
@@ -48,6 +59,7 @@ class WebPanelActivity : LockedActivity() {
 
             override fun onPageFinished(v: WebView, url: String?) {
                 CookieManager.getInstance().flush()
+                if (desktopApplied == true) v.evaluateJavascript(viewportJs, null)
                 val host = loadedHost ?: return
                 if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
                     Prefs.putString(this@WebPanelActivity, "last_url", url)
@@ -56,6 +68,13 @@ class WebPanelActivity : LockedActivity() {
             }
         }
         findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { web.reload() }
+        findViewById<android.view.View>(R.id.btnDesktop).setOnClickListener {
+            val on = Prefs.getString(this, "desktop_mode", "0") != "1"
+            Prefs.putString(this, "desktop_mode", if (on) "1" else "0")
+            android.widget.Toast.makeText(this, if (on) "عرض سطح المكتب: مفعّل" else "عرض الهاتف: مفعّل",
+                android.widget.Toast.LENGTH_SHORT).show()
+            onReady()
+        }
         findViewById<android.view.View>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -67,18 +86,31 @@ class WebPanelActivity : LockedActivity() {
 
     /** تُستدعى بعد فتح القفل: تحمّل اللوحة فقط إذا تغيّر الـ IP، وإلا تبقى الصفحة كما هي. */
     override fun onReady() {
+        val modeChanged = applyMode()
         val host = ModemClient.normalize(Prefs.getString(this, "ip"))
         if (host == null) {
             if (!askedSettings) { askedSettings = true; startActivity(Intent(this, SettingsActivity::class.java)) }
             return
         }
-        if (host == loadedHost) return
+        if (host == loadedHost) { if (modeChanged) web.reload(); return }
         loadedHost = host
         attempts = 0
         findViewById<TextView>(R.id.tvHost).text = host
         val last = Prefs.getString(this, "last_url")
         val sameHost = last.isNotEmpty() && Uri.parse(last).host == host.substringBefore(':')
         web.loadUrl(if (sameHost) last else "http://$host")
+    }
+
+    /** يطبّق وضع سطح المكتب/الهاتف؛ يرجع true إذا تغيّر الوضع. */
+    private fun applyMode(): Boolean {
+        val desktop = Prefs.getString(this, "desktop_mode", "0") == "1"
+        findViewById<android.view.View>(R.id.btnDesktop).alpha = if (desktop) 1f else 0.5f
+        if (desktop == desktopApplied) return false
+        desktopApplied = desktop
+        web.settings.userAgentString = if (desktop) desktopUa else defaultUa
+        web.settings.useWideViewPort = desktop
+        web.settings.loadWithOverviewMode = desktop
+        return true
     }
 
     /** يملأ كلمة المرور ويضغط زر الدخول، فقط داخل صفحات المودم نفسه ولمحاولتين كحد أقصى. */

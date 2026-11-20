@@ -76,9 +76,11 @@ class SettingsActivity : LockedActivity() {
         setStatus("لم يتم اختبار الاتصال بعد", R.color.neutral)
         refresh()
 
-        val sw = findViewById<MaterialSwitch>(R.id.swAutoLogin)
-        sw.isChecked = Prefs.getString(this, "auto_login", "1") == "1"
-        sw.setOnCheckedChangeListener { _, c -> Prefs.putString(this, "auto_login", if (c) "1" else "0") }
+        for ((id, key, def) in listOf(Triple(R.id.swAutoLogin, "auto_login", "1"), Triple(R.id.swDesktop, "desktop_mode", "0"))) {
+            val sw = findViewById<MaterialSwitch>(id)
+            sw.isChecked = Prefs.getString(this, key, def) == "1"
+            sw.setOnCheckedChangeListener { _, c -> Prefs.putString(this, key, if (c) "1" else "0") }
+        }
 
         findViewById<View>(R.id.btnSave).setOnClickListener { if (save()) setStatus("تم حفظ البيانات", R.color.success) }
         findViewById<View>(R.id.btnTest).setOnClickListener { test() }

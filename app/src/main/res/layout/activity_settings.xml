@@ -95,6 +95,9 @@
                         <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swAutoLogin"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="تسجيل الدخول تلقائياً في اللوحة" />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDesktop"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="عرض نسخة سطح المكتب (ملائمة لحجم الهاتف)" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

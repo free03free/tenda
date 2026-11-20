@@ -13,6 +13,9 @@
         <com.google.android.material.button.MaterialButton android:id="@+id/btnRefresh"
             style="@style/Widget.Material3.Button.IconButton" android:layout_width="48dp" android:layout_height="48dp"
             app:icon="@drawable/ic_refresh" android:contentDescription="تحديث" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnDesktop"
+            style="@style/Widget.Material3.Button.IconButton" android:layout_width="48dp" android:layout_height="48dp"
+            app:icon="@drawable/ic_desktop" android:contentDescription="عرض سطح المكتب" />
         <com.google.android.material.button.MaterialButton android:id="@+id/btnSettings"
             style="@style/Widget.Material3.Button.IconButton" android:layout_width="48dp" android:layout_height="48dp"
             app:icon="@drawable/ic_settings" android:contentDescription="الإعدادات" />
