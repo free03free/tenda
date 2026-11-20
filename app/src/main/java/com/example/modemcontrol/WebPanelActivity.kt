@@ -96,7 +96,7 @@ class WebPanelActivity : LockedActivity() {
                 }
             }
         }
-        findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { web.reload() }
+        findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { refreshWithVerify() }
         findViewById<android.view.View>(R.id.btnLog).setOnClickListener { showLog() }
         findViewById<android.view.View>(R.id.btnDesktop).setOnClickListener {
             val on = Prefs.getString(this, "desktop_mode", "0") != "1"
@@ -110,6 +110,12 @@ class WebPanelActivity : LockedActivity() {
         }
         Prefs.seedBlockDefaults(this)
         setupBlockSwitch()
+        // العمل في الخلفية بشكل إجباري (خدمة أمامية)؛ يُطلب الإذن مرة واحدة عند أول تشغيل
+        BgKeep.apply(this)
+        if (Prefs.getString(this, "bg_force", "1") == "1" && Prefs.getString(this, "bg_asked") != "1") {
+            Prefs.putString(this, "bg_asked", "1")
+            BgKeep.askExemptions(this)
+        }
         // اللوحة لا تملك إعداداً للأجهزة الجديدة، فنعيد فحص الشبكة كل 30 ثانية والقطع مفعّل لنشمل ما اتصل حديثاً
         lifecycleScope.launch {
             var waited = 0L
@@ -211,6 +217,36 @@ class WebPanelActivity : LockedActivity() {
         }
     }
 
+    private fun toast(t: String) = android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_LONG).show()
+
+    /** بعد التشغيل/الإيقاف: قراءة مستقلة من المودم للتأكد (مع إصلاح تلقائي مرة واحدة)، ثم تحديث صفحة اللوحة. */
+    private fun verifyThenRefresh(expectOn: Boolean) {
+        if (Prefs.getString(this, "refresh_after", "1") != "1") return
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(1500)
+            var r = PanelBlock.verify(this@WebPanelActivity, expectOn)
+            val notReady = r.exceptionOrNull()?.message?.contains("غير") == true && r.exceptionOrNull()?.message?.contains("جاهزة") == true
+            if (r.isFailure && !notReady) {
+                // مرة واحدة: أعد إرسال الحالة المطلوبة ثم تحقق ثانية
+                PanelBlock.setBlock(this@WebPanelActivity, expectOn)
+                kotlinx.coroutines.delay(1500)
+                r = PanelBlock.verify(this@WebPanelActivity, expectOn)
+            }
+            toast(r.fold({ "✔ تأكيد: $it" }, { "✖ لم يتأكد: ${it.message}" }))
+            web.reload()
+        }
+    }
+
+    /** زر التحديث: تأكد من حالة القطع الحالية ثم أعد تحميل اللوحة. */
+    private fun refreshWithVerify() {
+        val on = Prefs.getString(this, "block_state") == "1"
+        lifecycleScope.launch {
+            val r = PanelBlock.verify(this@WebPanelActivity, on)
+            toast(r.fold({ "✔ " + (if (on) "القطع فعّال: " else "") + it }, { "✖ " + it.message }))
+            web.reload()
+        }
+    }
+
     /** يُستدعى كل ثانية: يحدّث العدّاد، وعند انتهاء المدة يستعيد الإنترنت تلقائياً. */
     private fun tickTimer() {
         val until = blockUntil()
@@ -274,6 +310,7 @@ class WebPanelActivity : LockedActivity() {
                     Prefs.putString(this@WebPanelActivity, "block_until",
                         if (want && minutes > 0) (System.currentTimeMillis() + minutes * 60000).toString() else "0")
                     renderBlock(want)
+                    verifyThenRefresh(want)
                     val r = ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80)
                     android.widget.Toast.makeText(this@WebPanelActivity,
                         (if (want) "أُرسل أمر القطع" else "أُرسل أمر الاستعادة") + if (r.isNotEmpty()) "\nرد المودم: $r" else "",
@@ -416,6 +453,7 @@ class WebPanelActivity : LockedActivity() {
     }
 
     override fun onDestroy() {
+        if (PanelBlock.web?.get() === web) PanelBlock.web = null
         super.onDestroy()
     }
 

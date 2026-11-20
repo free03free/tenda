@@ -128,6 +128,66 @@ object PanelBlock {
       },function(m){done(false,m);});
     }"""
 
+    // قراءة فقط: جدول التحكم الأبوي وحالة كل جهاز، ووضع فلتر MAC الحالي
+    private val verifyJs = """function(){
+      var j=window.jQuery;
+      function done(o){try{MCBlk.done('V|'+JSON.stringify(o));}catch(e){}}
+      if(!j||!j.ajax){done({err:'الصفحة غير جاهزة'});return;}
+      var out={};
+      j.ajax({type:'GET',dataType:'text',
+        url:'goform/getParentControl?random='+Math.random()+'&modules=parentCtrlList%2CparentAccessCtrl',
+        success:function(t){
+          try{var r=JSON.parse(t),a=r.parentAccessCtrl||{};
+            out.pc={t:a.parentCtrlOnlineTime,d:a.parentCtrlOnlineDate,devs:(r.parentCtrlList||[]).map(function(x){
+              return {m:String(x.parentCtrlMAC).toLowerCase(),e:String(x.parentCtrlEn)};})};
+          }catch(e){out.err='رد غير مفهوم (غالباً انتهت الجلسة)';done(out);return;}
+          j.ajax({type:'GET',dataType:'text',url:'goform/getNAT?random='+Math.random()+'&modules=macFilter',
+            success:function(t2){try{out.mac=JSON.parse(t2).macFilter.curFilterMode;}catch(e){}done(out);},
+            error:function(){done(out);}});
+        },
+        error:function(x){done({err:'فشل القراءة HTTP '+x.status});}});
+    }"""
+
+    /** يقرأ الحالة الفعلية من المودم ويقارنها بالمتوقع. النتيجة: نص التأكيد، أو فشل بسبب عدم المطابقة. */
+    suspend fun verify(c: Context, expectOn: Boolean): Result<String> = lock.withLock {
+        val w = web?.get() ?: return@withLock Result.failure(IllegalStateException("لوحة المودم غير مفتوحة"))
+        val def = CompletableDeferred<String>()
+        pending = def
+        withContext(Dispatchers.Main) { w.evaluateJavascript("($verifyJs)()", null) }
+        val raw = withTimeoutOrNull(15000) { def.await() }
+        pending = null
+        if (raw == null || !raw.startsWith("V|")) return@withLock Result.failure(IllegalStateException("لا رد من اللوحة"))
+        val o = runCatching { JSONObject(raw.substringAfter('|')) }.getOrNull()
+            ?: return@withLock Result.failure(IllegalStateException("رد غير مفهوم"))
+        if (o.has("err")) return@withLock Result.failure(IllegalStateException(o.optString("err")))
+        val method = Prefs.getString(c, "block_method_active", Prefs.getString(c, "block_method", "parental"))
+        if (method == "mac") {
+            val mode = o.optString("mac")
+            val ok = if (expectOn) mode == "pass" else mode == "deny"
+            val label = if (mode == "pass") "Whitelist" else if (mode == "deny") "Blacklist" else "غير معروف"
+            return@withLock if (ok) Result.success("وضع الفلتر: $label") else Result.failure(IllegalStateException("وضع الفلتر الحالي $label"))
+        }
+        val pc = o.optJSONObject("pc") ?: return@withLock Result.failure(IllegalStateException("لا بيانات تحكم أبوي"))
+        val t = pc.optString("t"); val dd = pc.optString("d")
+        val blockedSched = (dd == "00000000") || (t == "03:00-03:01" && dd == "11111111")
+        val exempt = Exempt.list(c).map { it.mac.lowercase() }.toSet()
+        val devs = pc.optJSONArray("devs") ?: JSONArray()
+        var other = 0; var other_on = 0
+        for (i in 0 until devs.length()) {
+            val dv = devs.getJSONObject(i)
+            if (dv.optString("m") in exempt) continue
+            other++; if (dv.optString("e") == "true") other_on++
+        }
+        if (expectOn) {
+            val ok = blockedSched && other_on == other
+            if (ok) Result.success("الإنترنت مقطوع عن $other جهاز") else
+                Result.failure(IllegalStateException("لم يكتمل القطع: ${other - other_on} من $other جهاز غير خاضع للتحكم" + if (!blockedSched) "، والجدول ليس جدول القطع" else ""))
+        } else {
+            val ok = !blockedSched
+            if (ok) Result.success("الجدول الحالي $t") else Result.failure(IllegalStateException("جدول القطع ما زال مفعّلاً"))
+        }
+    }
+
     suspend fun setBlock(c: Context, on: Boolean, sweep: Boolean = false): Result<Int> = lock.withLock {
         if (sweep && Prefs.getString(c, "block_state") != "1") return@withLock Result.failure(IllegalStateException("sweep_skipped"))
         val w = web?.get() ?: return@withLock Result.failure(IllegalStateException("افتح الشاشة الرئيسية (لوحة المودم) أولاً"))

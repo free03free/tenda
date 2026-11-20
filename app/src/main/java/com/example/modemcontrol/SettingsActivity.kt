@@ -126,6 +126,19 @@ class SettingsActivity : LockedActivity() {
             etName.text.clear(); etMac.text.clear()
             exemptChanged()
         }
+        // العمل في الخلفية بشكل إجباري + تأكيد/تحديث الصفحة بعد كل أمر
+        findViewById<MaterialSwitch>(R.id.swBgForce).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "bg_force", "1") == "1"
+            setOnCheckedChangeListener { _, c ->
+                Prefs.putString(this@SettingsActivity, "bg_force", if (c) "1" else "0")
+                BgKeep.apply(this@SettingsActivity)
+                if (c) BgKeep.askExemptions(this@SettingsActivity)
+            }
+        }
+        findViewById<MaterialSwitch>(R.id.swRefreshAfter).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "refresh_after", "1") == "1"
+            setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "refresh_after", if (c) "1" else "0") }
+        }
         // الفحص الدوري للأجهزة الجديدة: تشغيل/إيقاف وفاصل مخصص بالثواني
         findViewById<MaterialSwitch>(R.id.swSweep).apply {
             isChecked = Prefs.getString(this@SettingsActivity, "sweep_on", "1") == "1"

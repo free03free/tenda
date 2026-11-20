@@ -215,6 +215,29 @@
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:padding="16dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="الخلفية والتحديث" android:textAppearance="?attr/textAppearanceTitleMedium" />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swBgForce"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="العمل في الخلفية بشكل إجباري" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:alpha="0.75"
+                    android:text="يُظهر إشعاراً دائماً ويُبقي التطبيق حيّاً لتعمل مدة القطع والفحص الدوري والشاشة مغلقة. على هواوي: الإعدادات ← البطارية ← تشغيل التطبيقات ← ModemControl ← إدارة يدوية، وفعّل التشغيل التلقائي والتشغيل في الخلفية. ولا تُغلق التطبيق من قائمة التطبيقات الأخيرة." />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swRefreshAfter"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="تأكيد وتحديث صفحة المودم بعد كل تشغيل/إيقاف" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:alpha="0.75"
+                    android:text="يقرأ التطبيق الحالة من المودم مرة ثانية للتأكد (ويعيد الإرسال مرة واحدة إن لم تطابق)، ثم يعيد تحميل اللوحة لتظهر الإعدادات الجديدة. زر التحديث في الأعلى يفعل الشيء نفسه." />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView style="@style/Widget.Material3.CardView.Outlined"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="طريقة قطع الإنترنت" android:textAppearance="?attr/textAppearanceTitleMedium" />
                 <RadioGroup android:id="@+id/rgBlockMethod" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="8dp">

@@ -1,0 +1,145 @@
+package com.example.modemcontrol
+
+import android.Manifest
+import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * خدمة أمامية (إشعار دائم) تُبقي التطبيق حيّاً في الخلفية، وتمسك WakeLock أثناء القطع حتى لا يوقف النظام
+ * العدّاد والفحص الدوري. لا تستطيع إبقاء لوحة المودم حيّة إن أغلق المستخدم التطبيق من قائمة التطبيقات الأخيرة؛
+ * في هذه الحالة ترسل إشعاراً عند انتهاء المدة يفتح التطبيق ليستعيد الإنترنت.
+ */
+class KeepAliveService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var job: Job? = null
+    private var wl: PowerManager.WakeLock? = null
+    private var expiredNotified = false
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureChannel(this)
+        startForeground(NOTIF_ID, buildNotif("جاهز في الخلفية"))
+        if (job == null) job = scope.launch { loop() }
+        return START_STICKY
+    }
+
+    private suspend fun loop() {
+        val nm = getSystemService(NotificationManager::class.java)
+        while (scope.isActive) {
+            val on = Prefs.getString(this, "block_state") == "1"
+            val until = Prefs.getString(this, "block_until", "0").toLongOrNull() ?: 0L
+            setWake(on)
+            val text = when {
+                !on -> "جاهز في الخلفية"
+                until > 0 -> "القطع مفعّل، باقي " + fmt(until - System.currentTimeMillis())
+                else -> "القطع مفعّل"
+            }
+            nm.notify(NOTIF_ID, buildNotif(text))
+            // انتهت المدة ولوحة المودم غير حيّة (أُغلق التطبيق): نبّه المستخدم ليفتحه فيستعيد الإنترنت
+            if (on && until > 0 && System.currentTimeMillis() > until + 10_000 && PanelBlock.web?.get() == null) {
+                if (!expiredNotified) { expiredNotified = true; notifyExpired(nm) }
+            } else expiredNotified = false
+            delay(5000)
+        }
+    }
+
+    private fun fmt(ms: Long): String {
+        val t = (ms / 1000).coerceAtLeast(0); val h = t / 3600; val m = (t % 3600) / 60; val s = t % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+    }
+
+    private fun openApp() = PendingIntent.getActivity(
+        this, 0, Intent(this, WebPanelActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    private fun buildNotif(text: String): Notification =
+        NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setContentTitle("ModemControl")
+            .setContentText(text)
+            .setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+            .setContentIntent(openApp())
+            .build()
+
+    private fun notifyExpired(nm: NotificationManager) {
+        val n = NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("انتهت مدة قطع الإنترنت")
+            .setContentText("افتح التطبيق ليستعيد الإنترنت")
+            .setAutoCancel(true).setContentIntent(openApp())
+            .build()
+        nm.notify(EXPIRED_ID, n)
+    }
+
+    private fun setWake(on: Boolean) {
+        if (on && wl == null) {
+            wl = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "modemcontrol:block").apply { acquire(24 * 60 * 60 * 1000L) }
+        } else if (!on && wl != null) { runCatching { wl?.release() }; wl = null }
+    }
+
+    override fun onDestroy() {
+        runCatching { wl?.release() }; wl = null
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val CHANNEL = "keepalive"
+        private const val NOTIF_ID = 41
+        private const val EXPIRED_ID = 42
+
+        fun ensureChannel(c: Context) {
+            if (Build.VERSION.SDK_INT >= 26) {
+                val nm = c.getSystemService(NotificationManager::class.java)
+                if (nm.getNotificationChannel(CHANNEL) == null)
+                    nm.createNotificationChannel(NotificationChannel(CHANNEL, "العمل في الخلفية", NotificationManager.IMPORTANCE_LOW))
+            }
+        }
+    }
+}
+
+/** تشغيل/إيقاف الخدمة حسب إعداد "العمل في الخلفية بشكل إجباري" وطلب الأذونات اللازمة. */
+object BgKeep {
+    fun apply(c: Context) {
+        val i = Intent(c, KeepAliveService::class.java)
+        if (Prefs.getString(c, "bg_force", "1") == "1") runCatching { ContextCompat.startForegroundService(c, i) }
+        else c.stopService(i)
+    }
+
+    /** يطلب إذن الإشعارات (أندرويد 13+) واستثناء التطبيق من توفير البطارية. */
+    fun askExemptions(a: Activity) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(a, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            a.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 77)
+        val pm = a.getSystemService(PowerManager::class.java)
+        if (!pm.isIgnoringBatteryOptimizations(a.packageName)) {
+            runCatching {
+                a.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + a.packageName)))
+            }
+        }
+    }
+}
