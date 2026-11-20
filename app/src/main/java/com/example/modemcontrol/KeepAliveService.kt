@@ -11,6 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.wifi.WifiManager
+import android.app.AlarmManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -35,6 +37,7 @@ class KeepAliveService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
     private var wl: PowerManager.WakeLock? = null
+    private var wifi: WifiManager.WifiLock? = null
     private var expiredNotified = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -52,6 +55,7 @@ class KeepAliveService : Service() {
             val on = Prefs.getString(this, "block_state") == "1"
             val until = Prefs.getString(this, "block_until", "0").toLongOrNull() ?: 0L
             setWake(on)
+            BgAlarm.schedule(this, if (on && until > 0) until else 0L)
             val text = when {
                 !on -> "جاهز في الخلفية"
                 until > 0 -> "القطع مفعّل، باقي " + fmt(until - System.currentTimeMillis())
@@ -107,10 +111,19 @@ class KeepAliveService : Service() {
             wl = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "modemcontrol:block").apply { acquire(24 * 60 * 60 * 1000L) }
         } else if (!on && wl != null) { runCatching { wl?.release() }; wl = null }
+        // قفل الواي فاي: يمنع النظام من إطفاء الشبكة أثناء السبات فيبقى الاتصال بالمودم يعمل
+        if (on && wifi == null) {
+            wifi = runCatching {
+                val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                applicationContext.getSystemService(WifiManager::class.java)
+                    .createWifiLock(mode, "modemcontrol:wifi").apply { setReferenceCounted(false); acquire() }
+            }.getOrNull()
+        } else if (!on && wifi != null) { runCatching { wifi?.release() }; wifi = null }
     }
 
     override fun onDestroy() {
         runCatching { wl?.release() }; wl = null
+        runCatching { wifi?.release() }; wifi = null
         scope.cancel()
         super.onDestroy()
     }
@@ -161,6 +174,24 @@ object BgKeep {
             runCatching {
                 a.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + a.packageName)))
             }
+        }
+    }
+}
+
+
+/** منبّه دقيق يوقظ الجهاز من السبات (Doze) عند انتهاء مدة القطع ويعيد تشغيل الخدمة إن قتلها النظام. */
+object BgAlarm {
+    private fun pi(c: Context) = PendingIntent.getBroadcast(
+        c, 7, Intent(c, BgReceiver::class.java).setAction(BgReceiver.ACTION_WAKE),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    fun schedule(c: Context, atMs: Long) {
+        val am = c.getSystemService(AlarmManager::class.java)
+        if (atMs <= 0L) { am.cancel(pi(c)); return }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms())
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi(c))
+            else am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi(c))
         }
     }
 }
