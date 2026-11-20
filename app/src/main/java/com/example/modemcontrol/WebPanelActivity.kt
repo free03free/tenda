@@ -266,7 +266,8 @@ class WebPanelActivity : LockedActivity() {
         if (!inForeground && Prefs.getString(this, "expire_launch", "1") == "1" && BgKeep.canLaunch(this)) {
             runCatching {
                 startActivity(Intent(this, WebPanelActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(LockedActivity.EXTRA_AUTO, true))
             }
         }
         lifecycleScope.launch {

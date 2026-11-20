@@ -39,11 +39,13 @@ class KeepAliveService : Service() {
     private var wl: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
     private var expiredNotified = false
+    private var armedFor = -1L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel(this)
+        armedFor = -1L // أعد ضبط المنبّه (مثلاً بعد تغيير وقت الجهاز أو إعادة التشغيل)
         startForeground(NOTIF_ID, buildNotif("جاهز في الخلفية"))
         if (job == null) job = scope.launch { loop() }
         return START_STICKY
@@ -55,7 +57,8 @@ class KeepAliveService : Service() {
             val on = Prefs.getString(this, "block_state") == "1"
             val until = Prefs.getString(this, "block_until", "0").toLongOrNull() ?: 0L
             setWake(on)
-            BgAlarm.schedule(this, if (on && until > 0) until else 0L)
+            val want = if (on && until > 0) until else 0L
+            if (want != armedFor) { BgAlarm.schedule(this, want); armedFor = want }
             val text = when {
                 !on -> "جاهز في الخلفية"
                 until > 0 -> "القطع مفعّل، باقي " + fmt(until - System.currentTimeMillis())
@@ -71,7 +74,9 @@ class KeepAliveService : Service() {
                     if (BgKeep.canLaunch(this)) runCatching { startActivity(launchIntent()) }
                 }
             } else expiredNotified = false
-            delay(5000)
+            // اقترب موعد الانتهاء: اصحُ عنده بالضبط بدل انتظار 5 ثوانٍ
+            val toEnd = if (on && until > 0) until - System.currentTimeMillis() else Long.MAX_VALUE
+            delay(if (toEnd in 1..5000) toEnd + 50 else 5000)
         }
     }
 
@@ -82,6 +87,7 @@ class KeepAliveService : Service() {
 
     private fun launchIntent() = Intent(this, WebPanelActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        .putExtra(LockedActivity.EXTRA_AUTO, true)
 
     private fun openApp() = PendingIntent.getActivity(
         this, 0, Intent(this, WebPanelActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -97,10 +103,12 @@ class KeepAliveService : Service() {
             .build()
 
     private fun notifyExpired(nm: NotificationManager) {
-        val n = NotificationCompat.Builder(this, CHANNEL)
+        val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("انتهت مدة قطع الإنترنت")
             .setContentText("افتح التطبيق ليستعيد الإنترنت")
+            .setPriority(NotificationCompat.PRIORITY_MAX).setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setFullScreenIntent(PendingIntent.getActivity(this, 1, launchIntent(), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT), true)
             .setAutoCancel(true).setContentIntent(openApp())
             .build()
         nm.notify(EXPIRED_ID, n)
@@ -130,6 +138,7 @@ class KeepAliveService : Service() {
 
     companion object {
         private const val CHANNEL = "keepalive"
+        private const val CHANNEL_ALERT = "expired_alert"
         private const val NOTIF_ID = 41
         private const val EXPIRED_ID = 42
 
@@ -138,6 +147,8 @@ class KeepAliveService : Service() {
                 val nm = c.getSystemService(NotificationManager::class.java)
                 if (nm.getNotificationChannel(CHANNEL) == null)
                     nm.createNotificationChannel(NotificationChannel(CHANNEL, "العمل في الخلفية", NotificationManager.IMPORTANCE_LOW))
+                if (nm.getNotificationChannel(CHANNEL_ALERT) == null)
+                    nm.createNotificationChannel(NotificationChannel(CHANNEL_ALERT, "انتهاء مدة القطع", NotificationManager.IMPORTANCE_HIGH))
             }
         }
     }
@@ -179,19 +190,19 @@ object BgKeep {
 }
 
 
-/** منبّه دقيق يوقظ الجهاز من السبات (Doze) عند انتهاء مدة القطع ويعيد تشغيل الخدمة إن قتلها النظام. */
+/** منبّه من نوع AlarmClock: يوقظ الجهاز حتى في السبات العميق ولا يخضع لتقييد Doze ولا يحتاج إذن المنبّهات الدقيقة. */
 object BgAlarm {
-    private fun pi(c: Context) = PendingIntent.getBroadcast(
+    private fun wakePi(c: Context) = PendingIntent.getBroadcast(
         c, 7, Intent(c, BgReceiver::class.java).setAction(BgReceiver.ACTION_WAKE),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    private fun showPi(c: Context) = PendingIntent.getActivity(
+        c, 8, Intent(c, WebPanelActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     fun schedule(c: Context, atMs: Long) {
         val am = c.getSystemService(AlarmManager::class.java)
-        if (atMs <= 0L) { am.cancel(pi(c)); return }
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 31 && !am.canScheduleExactAlarms())
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi(c))
-            else am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMs, pi(c))
-        }
+        if (atMs <= 0L) { am.cancel(wakePi(c)); return }
+        runCatching { am.setAlarmClock(AlarmManager.AlarmClockInfo(atMs, showPi(c)), wakePi(c)) }
     }
 }
