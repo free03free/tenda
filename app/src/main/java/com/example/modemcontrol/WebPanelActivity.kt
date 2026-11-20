@@ -230,30 +230,80 @@ class WebPanelActivity : LockedActivity() {
         @android.webkit.JavascriptInterface
         fun log(s: String) {
             synchronized(captured) {
-                captured.addLast(s.take(700))
+                captured.addLast(s.take(2200))
                 while (captured.size > 100) captured.removeFirst()
             }
         }
     }
 
-    // يخفي أي قيمة اسمها يحوي pass/pwd/password قبل تسجيلها
+    // يخفي أي قيمة اسمها يحوي pass/pwd/password قبل تسجيلها.
+    // يلتقط أيضاً القيم "قبل التشفير": استدعاءات jQuery.ajax، ومكتبات JSEncrypt/CryptoJS، والدوال العامة التي في اسمها enc/crypt،
+    // وآخر نتائج JSON.stringify قبل كل طلب مشفّر (PRE)، مع مسار الاستدعاء (STACK).
     private val capJs = """(function(){if(window.__mcCap)return;window.__mcCap=1;
-        function mask(t){return String(t==null?'':t).replace(/((?:pass|pwd|password)[^&=]*=)[^&]*/ig,function(m,a){return a+'***';});}
+        function L(s){try{MCCap.log(s);}catch(e){}}
+        var JS=JSON.stringify;
+        function mask(t){t=String(t==null?'':t);
+          t=t.replace(/((?:pass|pwd|password)[^&=]*=)[^&]*/ig,function(m,a){return a+'***';});
+          t=t.replace(/("[^"]*(?:pass|pwd)[^"]*"\s*:\s*")[^"]*/ig,function(m,a){return a+'***';});
+          return t;}
         function skip(u){return /\.(js|css|png|jpg|gif|ico|svg|woff2?|html?)(\?|$)/i.test(u);}
+        var recent=[];
+        function note(s){try{s=String(s);if(s.length<3000){recent.push({t:Date.now(),s:s});if(recent.length>6)recent.shift();}}catch(e){}}
+        JSON.stringify=function(){var r=JS.apply(this,arguments);note(r);return r;};
+        function stack(){try{return new Error().stack.split('\n').slice(2,12).map(function(l){
+          return l.trim().replace(/^at /,'').replace(/https?:\/\/[^\/]+\//g,'');}).join(' < ');}catch(e){return '';}}
         var o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;
         XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=u;return o.apply(this,arguments);};
         XMLHttpRequest.prototype.send=function(b){var x=this;
-          if(x.__u&&!skip(String(x.__u))){var rec=x.__m+' '+mask(x.__u)+(b?'\nBODY: '+mask(b):'');
-            x.addEventListener('loadend',function(){try{MCCap.log(rec+'\nRESP '+x.status+': '+mask(String(x.responseText||'').slice(0,150)));}catch(e){}});}
+          if(x.__u&&!skip(String(x.__u))){
+            var u=String(x.__u),bs=(b==null)?'':String(b),enc=bs.indexOf('__enc')>=0;
+            var rec=x.__m+' '+mask(u)+(bs?'\nBODY: '+mask(bs.slice(0,enc?60:500))+(enc?'...(مشفّر)':''):'');
+            if(enc){var now=Date.now();
+              var pre=recent.filter(function(r){return now-r.t<4000;}).map(function(r){return mask(r.s).slice(0,500);});
+              rec+='\nPRE: '+(pre.length?pre.join(' || '):'(none)')+'\nSTACK: '+stack();}
+            var big=/macFilter/i.test(u);
+            x.addEventListener('loadend',function(){try{L(rec+'\nRESP '+x.status+': '+mask(String(x.responseText||'').slice(0,big?1500:150)));}catch(e){}});}
           return s.apply(this,arguments);};
         if(window.fetch){var f=window.fetch;window.fetch=function(u,i){try{var url=(typeof u==='string')?u:u.url;
-          if(!skip(url)){MCCap.log(((i&&i.method)||'GET')+' '+mask(url)+(i&&i.body?'\nBODY: '+mask(i.body):''));}}catch(e){}
+          if(!skip(url)){L(((i&&i.method)||'GET')+' '+mask(url)+(i&&i.body?'\nBODY: '+mask(i.body):''));}}catch(e){}
           return f.apply(this,arguments);};}
+        function hook(){
+          var j=window.jQuery;
+          if(j&&j.ajax&&!j.ajax.__mc){var oa=j.ajax;
+            j.ajax=function(a,b){try{var st=(typeof a==='object'&&a)?a:(b||{});var u=(typeof a==='string')?a:st.url;
+              if(u&&!skip(String(u))&&String(u).indexOf('modules=ddns')<0){var d=st.data;
+                var ds=(d==null)?'':(typeof d==='string'?d:JS(d));
+                L('AJAX-PRE '+(st.type||st.method||'GET')+' '+mask(String(u))+(ds?'\nDATA: '+mask(ds).slice(0,600):''));}}catch(e){}
+              return oa.apply(this,arguments);};
+            for(var k in oa){try{j.ajax[k]=oa[k];}catch(e){}}
+            j.ajax.__mc=1;}
+          var JE=window.JSEncrypt;
+          if(JE&&JE.prototype&&JE.prototype.encrypt&&!JE.prototype.encrypt.__mc){var oe=JE.prototype.encrypt;
+            JE.prototype.encrypt=function(t){L('JSEncrypt IN: '+mask(String(t)).slice(0,600));return oe.apply(this,arguments);};
+            JE.prototype.encrypt.__mc=1;}
+          var C=window.CryptoJS;
+          if(C){['AES','DES','TripleDES','RC4','Rabbit'].forEach(function(n){var m=C[n];
+            if(m&&m.encrypt&&!m.encrypt.__mc){var oe2=m.encrypt;
+              m.encrypt=function(t){var v;try{v=(typeof t==='string')?t:t.toString(C.enc.Utf8);}catch(e){v='[wordarray]';}
+                L('CryptoJS.'+n+' IN: '+mask(v).slice(0,600));return oe2.apply(this,arguments);};
+              m.encrypt.__mc=1;}});}
+          try{Object.keys(window).forEach(function(k){var fn=window[k];
+            if(typeof fn!=='function'||fn.__mc||!/enc|crypt|aes|rsa|sm4/i.test(k))return;
+            var src=Function.prototype.toString.call(fn);
+            if(/\[native code\]/.test(src)||/^class\s/.test(src)||Object.keys(fn).length>0)return;
+            var cnt=0;
+            var w=function(){try{if(cnt++<6)L('FN '+k+' IN: '+mask(Array.prototype.map.call(arguments,function(a){
+              return (a&&typeof a==='object')?'[obj]':String(a);}).join(' , ')).slice(0,500));}catch(e){}
+              return fn.apply(this,arguments);};
+            w.__mc=1;w.prototype=fn.prototype;
+            try{window[k]=w;}catch(e){}});}catch(e){}
+        }
+        var n=0;(function tick(){try{hook();}catch(e){}setTimeout(tick,n++<40?250:3000);})();
       })()"""
 
     private fun showLog() {
         val all = synchronized(captured) { captured.toList() }
-        val text = all.filterNot { it.contains("goform/getStatus") }.takeLast(15).joinToString("\n\n").ifBlank {
+        val text = all.filterNot { it.contains("goform/getStatus") || it.contains("modules=ddns\nRESP") }.takeLast(25).joinToString("\n\n").ifBlank {
             "لا توجد طلبات ملتقطة بعد (طلبات التحديث الدورية مخفية).\nنفّذ الإجراء داخل لوحة المودم (مثلاً غيّر فلتر MAC واضغط OK) ثم افتح السجل."
         }
         val tv = TextView(this).apply {
