@@ -260,7 +260,7 @@ class WebPanelActivity : LockedActivity() {
             if(enc){var now=Date.now();
               var pre=recent.filter(function(r){return now-r.t<4000;}).map(function(r){return mask(r.s).slice(0,500);});
               rec+='\nPRE: '+(pre.length?pre.join(' || '):'(none)')+'\nSTACK: '+stack();}
-            var big=/macFilter/i.test(u);
+            var big=/goform\/get/i.test(u)&&u.indexOf('modules=ddns')<0;
             x.addEventListener('loadend',function(){try{L(rec+'\nRESP '+x.status+': '+mask(String(x.responseText||'').slice(0,big?1500:150)));}catch(e){}});}
           return s.apply(this,arguments);};
         if(window.fetch){var f=window.fetch;window.fetch=function(u,i){try{var url=(typeof u==='string')?u:u.url;
@@ -302,7 +302,11 @@ class WebPanelActivity : LockedActivity() {
 
     private fun showLog() {
         val all = synchronized(captured) { captured.toList() }
-        val text = all.filterNot { it.contains("goform/getStatus") || it.contains("modules=ddns\nRESP") }.takeLast(25).joinToString("\n\n").ifBlank {
+        // يحذف التكرار: الطلبات الدورية نفسها (تختلف فقط بالرقم العشوائي) يبقى آخر واحد منها
+        val seen = HashSet<String>()
+        val uniq = all.filterNot { it.contains("goform/getStatus") || it.contains("modules=ddns\nRESP") }
+            .asReversed().filter { seen.add(it.replace(Regex("(random=)?0\\.[0-9]{6,}&?"), "")) }.asReversed()
+        val text = uniq.takeLast(25).joinToString("\n\n").ifBlank {
             "لا توجد طلبات ملتقطة بعد (طلبات التحديث الدورية مخفية).\nنفّذ الإجراء داخل لوحة المودم (مثلاً غيّر فلتر MAC واضغط OK) ثم افتح السجل."
         }
         val tv = TextView(this).apply {
