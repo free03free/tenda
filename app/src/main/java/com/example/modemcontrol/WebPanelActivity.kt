@@ -231,7 +231,7 @@ class WebPanelActivity : LockedActivity() {
         fun log(s: String) {
             synchronized(captured) {
                 captured.addLast(s.take(700))
-                while (captured.size > 40) captured.removeFirst()
+                while (captured.size > 100) captured.removeFirst()
             }
         }
     }
@@ -253,8 +253,8 @@ class WebPanelActivity : LockedActivity() {
 
     private fun showLog() {
         val all = synchronized(captured) { captured.toList() }
-        val text = all.takeLast(15).joinToString("\n\n").ifBlank {
-            "لا توجد طلبات ملتقطة بعد.\nنفّذ الإجراء داخل لوحة المودم (مثلاً غيّر فلتر MAC واضغط OK) ثم افتح السجل."
+        val text = all.filterNot { it.contains("goform/getStatus") }.takeLast(15).joinToString("\n\n").ifBlank {
+            "لا توجد طلبات ملتقطة بعد (طلبات التحديث الدورية مخفية).\nنفّذ الإجراء داخل لوحة المودم (مثلاً غيّر فلتر MAC واضغط OK) ثم افتح السجل."
         }
         val tv = TextView(this).apply {
             this.text = text; textSize = 12f; setTextIsSelectable(true)

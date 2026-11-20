@@ -76,6 +76,8 @@ object ModemClient {
             Prefs.getString(c, "user"), Prefs.getString(c, "pass"))
         return r.mapCatching { code ->
             if (code !in 200..399) throw IllegalStateException("HTTP $code")
+            if (lastResponse.contains("Document Error", true) || lastResponse.contains("Access Error", true))
+                throw IllegalStateException("رفض المودم الطلب (المسار أو الصيغة غير صحيحة)")
             Prefs.putString(c, "block_state", if (on) "1" else "0")
             code
         }
