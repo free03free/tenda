@@ -59,6 +59,7 @@ class WebPanelActivity : LockedActivity() {
         val bar = findViewById<LinearProgressIndicator>(R.id.progress)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
+        web.addJavascriptInterface(CapBridge(), "MCCap")
         defaultUa = web.settings.userAgentString
         web.settings.setSupportZoom(true)
         web.settings.builtInZoomControls = true
@@ -78,11 +79,13 @@ class WebPanelActivity : LockedActivity() {
             }
 
             override fun onPageCommitVisible(v: WebView, url: String?) {
+                v.evaluateJavascript(capJs, null)
                 if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
             }
 
             override fun onPageFinished(v: WebView, url: String?) {
                 CookieManager.getInstance().flush()
+                v.evaluateJavascript(capJs, null)
                 if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
                 val host = loadedHost ?: return
                 if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
@@ -92,6 +95,7 @@ class WebPanelActivity : LockedActivity() {
             }
         }
         findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { web.reload() }
+        findViewById<android.view.View>(R.id.btnLog).setOnClickListener { showLog() }
         findViewById<android.view.View>(R.id.btnDesktop).setOnClickListener {
             val on = Prefs.getString(this, "desktop_mode", "0") != "1"
             Prefs.putString(this, "desktop_mode", if (on) "1" else "0")
@@ -182,12 +186,13 @@ class WebPanelActivity : LockedActivity() {
             lifecycleScope.launch {
                 ModemClient.setBlock(this@WebPanelActivity, want).fold({
                     renderBlock(want)
+                    val r = ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80)
                     android.widget.Toast.makeText(this@WebPanelActivity,
-                        if (want) "تم قطع الإنترنت عن كل الأجهزة عدا المستثناة" else "تمت إعادة الإنترنت للجميع",
-                        android.widget.Toast.LENGTH_SHORT).show()
+                        (if (want) "أُرسل أمر القطع" else "أُرسل أمر الاستعادة") + if (r.isNotEmpty()) "\nرد المودم: $r" else "",
+                        android.widget.Toast.LENGTH_LONG).show()
                 }, {
                     renderBlock(!want)
-                    android.widget.Toast.makeText(this@WebPanelActivity, "فشل الأمر: ${it.message}",
+                    android.widget.Toast.makeText(this@WebPanelActivity, "فشل الأمر: ${it.message}" + ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80).let { r -> if (r.isNotEmpty()) "\nرد المودم: $r" else "" },
                         android.widget.Toast.LENGTH_LONG).show()
                 })
                 sw.isEnabled = true
@@ -216,6 +221,56 @@ class WebPanelActivity : LockedActivity() {
             }
             send(want)
         }
+    }
+
+    // ---- التقاط الطلبات التي ترسلها لوحة المودم نفسها (لمعرفة صيغة أمر الحظر الصحيحة لموديلك) ----
+    private val captured = java.util.ArrayDeque<String>()
+
+    private inner class CapBridge {
+        @android.webkit.JavascriptInterface
+        fun log(s: String) {
+            synchronized(captured) {
+                captured.addLast(s.take(700))
+                while (captured.size > 40) captured.removeFirst()
+            }
+        }
+    }
+
+    // يخفي أي قيمة اسمها يحوي pass/pwd/password قبل تسجيلها
+    private val capJs = """(function(){if(window.__mcCap)return;window.__mcCap=1;
+        function mask(t){return String(t==null?'':t).replace(/((?:pass|pwd|password)[^&=]*=)[^&]*/ig,function(m,a){return a+'***';});}
+        function skip(u){return /\.(js|css|png|jpg|gif|ico|svg|woff2?|html?)(\?|$)/i.test(u);}
+        var o=XMLHttpRequest.prototype.open,s=XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open=function(m,u){this.__m=m;this.__u=u;return o.apply(this,arguments);};
+        XMLHttpRequest.prototype.send=function(b){var x=this;
+          if(x.__u&&!skip(String(x.__u))){var rec=x.__m+' '+mask(x.__u)+(b?'\nBODY: '+mask(b):'');
+            x.addEventListener('loadend',function(){try{MCCap.log(rec+'\nRESP '+x.status+': '+mask(String(x.responseText||'').slice(0,150)));}catch(e){}});}
+          return s.apply(this,arguments);};
+        if(window.fetch){var f=window.fetch;window.fetch=function(u,i){try{var url=(typeof u==='string')?u:u.url;
+          if(!skip(url)){MCCap.log(((i&&i.method)||'GET')+' '+mask(url)+(i&&i.body?'\nBODY: '+mask(i.body):''));}}catch(e){}
+          return f.apply(this,arguments);};}
+      })()"""
+
+    private fun showLog() {
+        val all = synchronized(captured) { captured.toList() }
+        val text = all.takeLast(15).joinToString("\n\n").ifBlank {
+            "لا توجد طلبات ملتقطة بعد.\nنفّذ الإجراء داخل لوحة المودم (مثلاً غيّر فلتر MAC واضغط OK) ثم افتح السجل."
+        }
+        val tv = TextView(this).apply {
+            this.text = text; textSize = 12f; setTextIsSelectable(true)
+            textDirection = android.view.View.TEXT_DIRECTION_LTR; setPadding(40, 24, 40, 0)
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("آخر الطلبات الملتقطة")
+            .setView(android.widget.ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("نسخ") { _, _ ->
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("log", text))
+                android.widget.Toast.makeText(this, "تم النسخ", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("مسح") { _, _ -> synchronized(captured) { captured.clear() } }
+            .setNeutralButton("إغلاق", null)
+            .show()
     }
 
     override fun onDestroy() {

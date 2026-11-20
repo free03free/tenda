@@ -9,6 +9,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object ModemClient {
+    /** بداية رد المودم على آخر طلب (للتشخيص فقط). */
+    @Volatile var lastResponse: String = ""
+
     /** يقبل 192.168.1.1 أو 192.168.1.1:8080 ويُرجع null إن لم يكن IP صالحاً. */
     fun normalize(input: String): String? {
         val s = input.trim().removePrefix("http://").removePrefix("https://").substringBefore('/')
@@ -38,7 +41,11 @@ object ModemClient {
                     if (json) "application/json" else "application/x-www-form-urlencoded")
                 c.outputStream.use { it.write(body.toByteArray()) }
             }
-            return c.responseCode
+            val code = c.responseCode
+            lastResponse = runCatching {
+                (if (code >= 400) c.errorStream else c.inputStream)?.bufferedReader()?.use { it.readText().take(300) }
+            }.getOrNull().orEmpty().trim()
+            return code
         } finally { c.disconnect() }
     }
 

@@ -26,6 +26,9 @@
         <TextView android:id="@+id/tvBlock" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:text="قطع الإنترنت عن كل الأجهزة"
             android:textAppearance="?attr/textAppearanceBodyLarge" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnLog"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="سجل الطلبات" />
         <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swBlock"
             android:layout_width="wrap_content" android:layout_height="wrap_content" />
     </LinearLayout>
