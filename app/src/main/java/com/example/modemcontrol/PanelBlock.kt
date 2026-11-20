@@ -4,6 +4,8 @@ import android.content.Context
 import android.webkit.WebView
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -11,18 +13,82 @@ import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 /**
- * قطع/استعادة الإنترنت عبر لوحة Tenda نفسها: لوحة F6 V12 تشفّر جسم الطلب (__enc) داخل جافاسكريبت الصفحة،
- * فبدل تقليد التشفير ننفّذ طلب setNAT من داخل الـ WebView بدالة $.ajax الخاصة بالصفحة فتشفّره هي.
- * القطع = فلتر MAC بوضع Whitelist (filterMode=pass) وفيه المستثنون فقط. الاستعادة = Blacklist بقائمة فارغة (deny).
+ * طريقتان للقطع تُختاران من الإعدادات (block_method = parental | mac):
+ * parental: قطع الإنترنت مع بقاء الوايفاي، عبر "التحكم الأبوي" في لوحة Tenda (goform/setParentControl).
+ * اللوحة تشفّر الجسم (__enc) بجافاسكريبتها، فننفّذ الطلب من داخل الـ WebView بدالة $.ajax الخاصة بالصفحة.
+ *
+ * القطع: نفعّل التحكم الأبوي على كل جهاز غير مستثنى، ونجعل جدول "وقت الاتصال" فارغاً (لا أيام) فلا يُسمح لهم بالإنترنت أبداً.
+ * الاستعادة: نعطّل التحكم عن الأجهزة التي فعّلناها نحن فقط، ونعيد الجدول القديم.
+ * الأجهزة الجديدة: لا يوجد في اللوحة إعداد عام لها، فيعيد التطبيق الفحص كل 30 ثانية ما دامت الشاشة الرئيسية حيّة.
  */
 object PanelBlock {
     @Volatile var web: WeakReference<WebView>? = null
     @Volatile private var pending: CompletableDeferred<String>? = null
+    private val lock = Mutex()
 
-    /** يُستدعى من جسر الجافاسكريبت عند انتهاء العملية: "OK|..." أو "ERR|...". */
+    /** يُستدعى من جسر الجافاسكريبت عند انتهاء العملية (نص JSON). */
     fun finish(msg: String) { pending?.complete(msg) }
 
-    private val blockJs = """function(on,exempt){
+    private val blockJsPc = """function(on,exempt,flipped,prev){
+      var j=window.jQuery;
+      function done(ok,m,st){try{MCBlk.done(JSON.stringify({ok:ok,msg:m,st:st||null}));}catch(e){}}
+      function enc(v){return encodeURIComponent(v==null?'':String(v));}
+      function clean(v){return String(v==null?'':v).replace(/[\t\r\n]/g,' ');}
+      if(!j||!j.ajax){done(false,'الصفحة غير جاهزة. افتح لوحة المودم وسجّل الدخول ثم أعد المحاولة');return;}
+      function get(cb,eb){j.ajax({type:'GET',dataType:'text',
+        url:'goform/getParentControl?random='+Math.random()+'&modules=parentCtrlList%2CparentAccessCtrl',
+        success:function(t){var r;try{r=JSON.parse(t);}catch(e){eb('رد غير مفهوم (غالباً انتهت الجلسة، سجّل الدخول في اللوحة): '+String(t).slice(0,60));return;}cb(r);},
+        error:function(x){eb('فشل قراءة الأجهزة HTTP '+x.status);}});}
+      get(function(r){
+        var ac=r.parentAccessCtrl||{},list=r.parentCtrlList||[];
+        if((ac.parentCtrlURL&&ac.parentCtrlURL.length)||(ac.parentCtrlURLFilterMode&&ac.parentCtrlURLFilterMode!=='disable')){
+          done(false,'عندك فلترة روابط مفعّلة في التحكم الأبوي، لن أغيّر الإعدادات حتى لا تُمسح');return;}
+        var ex={},fl={},i;
+        for(i=0;i<exempt.length;i++)ex[String(exempt[i]).toLowerCase()]=1;
+        for(i=0;i<flipped.length;i++)fl[String(flipped[i]).toLowerCase()]=1;
+        var rows=[],want={},changed=false,blocked=0;
+        for(i=0;i<list.length;i++){
+          var d=list[i],mac=String(d.parentCtrlMAC).toLowerCase(),en=String(d.parentCtrlEn);
+          if(on){
+            if(ex[mac]){if(fl[mac]){en='false';delete fl[mac];}}
+            else{if(en!=='true')fl[mac]=1;en='true';blocked++;}
+          }else{if(fl[mac])en='false';}
+          if(en!==String(d.parentCtrlEn))changed=true;
+          want[mac]=en;
+          rows.push(clean(d.parentCtrlHostname)+'\t'+clean(d.parentCtrlRemark)+'\t'+d.parentCtrlMAC+'\t'+d.parentCtrlIP+'\t'+en);}
+        var pt=(prev&&prev.t)?prev.t:ac.parentCtrlOnlineTime, pd=(prev&&prev.d)?prev.d:ac.parentCtrlOnlineDate;
+        var tries=on?[[pt,'00000000'],['03:00-03:01','11111111']]:[[pt,pd]];
+        function state(){return on?{flipped:Object.keys(fl),t:pt,d:pd}:{flipped:[],t:'',d:''};}
+        var matches=false;
+        for(i=0;i<tries.length;i++)if(ac.parentCtrlOnlineTime===tries[i][0]&&ac.parentCtrlOnlineDate===tries[i][1])matches=true;
+        if(!changed&&matches){done(true,on?'القطع فعّال ولا أجهزة جديدة':'لا شيء للاستعادة',state());return;}
+        function attempt(k){
+          var t=tries[k][0],dt=tries[k][1];
+          var data='module1=parentCtrlList&onlineList='+enc(rows.join('\n'))
+            +'&module2=parentAccessCtrl&parentCtrlOnlineTime='+enc(t)+'&parentCtrlOnlineDate='+enc(dt)
+            +'&parentCtrlURLFilterMode=disable&urlList=';
+          function next(why){if(k+1<tries.length)attempt(k+1);else done(false,why);}
+          j.ajax({type:'POST',url:'goform/setParentControl',data:data,dataType:'text',
+            success:function(tx){
+              var code='?';try{code=String(JSON.parse(tx).errCode);}catch(e){}
+              if(code!=='0'){next('رفض المودم الطلب: '+String(tx).slice(0,80));return;}
+              setTimeout(function(){get(function(r2){
+                var a2=r2.parentAccessCtrl||{},ok=(a2.parentCtrlOnlineTime===t&&a2.parentCtrlOnlineDate===dt);
+                var l2=r2.parentCtrlList||[];
+                for(var q=0;q<l2.length;q++){var m2=String(l2[q].parentCtrlMAC).toLowerCase();
+                  if(want[m2]!==undefined&&want[m2]!==String(l2[q].parentCtrlEn))ok=false;}
+                if(ok)done(true,on?('تم: الإنترنت مقطوع عن '+blocked+' جهاز مع بقائهم على الوايفاي'+(k>0?' (جدول بديل: نافذة دقيقة واحدة يومياً)':'')):'تمت الاستعادة',state());
+                else next('قبل المودم الطلب لكن القيم لم تُحفظ كما طُلب');
+              },function(m3){next(m3);});},800);
+            },
+            error:function(x){next('فشل إرسال الأمر HTTP '+x.status);}});
+        }
+        attempt(0);
+      },function(m){done(false,m);});
+    }"""
+
+    // الطريقة 2: فلتر MAC بوضع Whitelist (المستثنون فقط). تقطع الإنترنت وتمنع الاتصال بالوايفاي أيضاً.
+    private val blockJsMac = """function(on,exempt){
       var j=window.jQuery;
       function done(ok,m){try{MCBlk.done((ok?'OK|':'ERR|')+m);}catch(e){}}
       function enc(v){return encodeURIComponent(v==null?'':String(v));}
@@ -62,21 +128,45 @@ object PanelBlock {
       },function(m){done(false,m);});
     }"""
 
-    suspend fun setBlock(c: Context, on: Boolean): Result<Int> {
-        val w = web?.get() ?: return Result.failure(IllegalStateException("افتح الشاشة الرئيسية (لوحة المودم) أولاً"))
-        val arr = JSONArray(Exempt.list(c).map { JSONObject().put("n", it.name).put("m", it.mac.lowercase()) })
+    suspend fun setBlock(c: Context, on: Boolean, sweep: Boolean = false): Result<Int> = lock.withLock {
+        if (sweep && Prefs.getString(c, "block_state") != "1") return@withLock Result.failure(IllegalStateException("sweep_skipped"))
+        val w = web?.get() ?: return@withLock Result.failure(IllegalStateException("افتح الشاشة الرئيسية (لوحة المودم) أولاً"))
+        val macs = JSONArray(Exempt.list(c).map { it.mac.lowercase() })
+        val wasOn = Prefs.getString(c, "block_state") == "1"
+        val flipped = runCatching { JSONArray(Prefs.getString(c, "pc_flipped", "[]")) }.getOrDefault(JSONArray())
+        val prev = JSONObject().apply {
+            if (wasOn) { put("t", Prefs.getString(c, "pc_prev_t")); put("d", Prefs.getString(c, "pc_prev_d")) }
+        }
+        // الطريقة المستخدمة: المختارة في الإعدادات عند بدء القطع، وتبقى نفسها حتى الاستعادة حتى لو غُيّرت الإعدادات
+        val method = if (wasOn) Prefs.getString(c, "block_method_active", "parental")
+                     else Prefs.getString(c, "block_method", "parental")
+        if (sweep && method == "mac") return@withLock Result.failure(IllegalStateException("sweep_skipped"))
         val def = CompletableDeferred<String>()
         pending = def
         withContext(Dispatchers.Main) {
-            w.evaluateJavascript("($blockJs)($on,$arr)", null)
+            if (method == "mac") {
+                val objs = JSONArray(Exempt.list(c).map { JSONObject().put("n", it.name).put("m", it.mac.lowercase()) })
+                w.evaluateJavascript("($blockJsMac)($on,$objs)", null)
+            } else w.evaluateJavascript("($blockJsPc)($on,$macs,$flipped,$prev)", null)
         }
-        val msg = withTimeoutOrNull(20000) { def.await() }
+        val raw = withTimeoutOrNull(25000) { def.await() }
         pending = null
-        if (msg == null) return Result.failure(IllegalStateException("لا رد من اللوحة خلال 20 ثانية"))
-        ModemClient.lastResponse = msg.substringAfter('|')
-        return if (msg.startsWith("OK|")) {
-            Prefs.putString(c, "block_state", if (on) "1" else "0")
-            Result.success(200)
-        } else Result.failure(IllegalStateException(msg.substringAfter('|')))
+        if (raw == null) return@withLock Result.failure(IllegalStateException("لا رد من اللوحة خلال 25 ثانية"))
+        // طريقة MAC تردّ بنص "OK|..." أو "ERR|..."، وطريقة التحكم الأبوي بـ JSON
+        val o = if (raw.startsWith("OK|") || raw.startsWith("ERR|"))
+            JSONObject().put("ok", raw.startsWith("OK|")).put("msg", raw.substringAfter('|'))
+        else runCatching { JSONObject(raw) }.getOrNull()
+            ?: return@withLock Result.failure(IllegalStateException("رد غير مفهوم من اللوحة"))
+        val msg = o.optString("msg")
+        if (!sweep) ModemClient.lastResponse = msg
+        if (!o.optBoolean("ok")) return@withLock Result.failure(IllegalStateException(msg))
+        o.optJSONObject("st")?.let { st ->
+            Prefs.putString(c, "pc_flipped", (st.optJSONArray("flipped") ?: JSONArray()).toString())
+            Prefs.putString(c, "pc_prev_t", st.optString("t"))
+            Prefs.putString(c, "pc_prev_d", st.optString("d"))
+        }
+        Prefs.putString(c, "block_state", if (on) "1" else "0")
+        if (on) Prefs.putString(c, "block_method_active", method)
+        Result.success(200)
     }
 }

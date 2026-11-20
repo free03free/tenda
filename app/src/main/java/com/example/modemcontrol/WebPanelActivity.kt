@@ -110,6 +110,21 @@ class WebPanelActivity : LockedActivity() {
         }
         Prefs.seedBlockDefaults(this)
         setupBlockSwitch()
+        // اللوحة لا تملك إعداداً للأجهزة الجديدة، فنعيد فحص الشبكة كل 30 ثانية والقطع مفعّل لنشمل ما اتصل حديثاً
+        lifecycleScope.launch {
+            var waited = 0L
+            while (true) {
+                kotlinx.coroutines.delay(1000)
+                waited++
+                val secs = (Prefs.getString(this@WebPanelActivity, "sweep_secs", "30").toLongOrNull() ?: 30L).coerceIn(5L, 3600L)
+                if (waited < secs) continue
+                waited = 0
+                if (Prefs.getString(this@WebPanelActivity, "sweep_on", "1") == "1" &&
+                    Prefs.getString(this@WebPanelActivity, "block_state") == "1" &&
+                    Exempt.list(this@WebPanelActivity).isNotEmpty())
+                    PanelBlock.setBlock(this@WebPanelActivity, true, sweep = true)
+            }
+        }
         // الرجوع يتنقل داخل اللوحة، وعند أول صفحة يُخفي التطبيق دون إغلاقه
         onBackPressedDispatcher.addCallback(this) {
             if (web.canGoBack()) web.goBack() else moveTaskToBack(true)
@@ -206,7 +221,7 @@ class WebPanelActivity : LockedActivity() {
             // تنبيه واحد فقط: لا أجهزة مستثناة، فسيُقطع حتى عن هذا الهاتف وقد لا تستطيع الاستعادة
             if (want && Exempt.list(this).isEmpty()) {
                 androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setMessage("لا توجد أجهزة مستثناة. سيُقطع الإنترنت عن الجميع وقد يشمل هذا الهاتف فلا تستطيع إعادته من التطبيق. أضف هاتفك للمستثنين من الإعدادات أولاً. هل تريد المتابعة؟")
+                    .setMessage("لا توجد أجهزة مستثناة. سيُقطع الإنترنت عن كل الأجهزة (تبقى على الوايفاي) وقد يشمل هذا الهاتف. أضف هاتفك للمستثنين من الإعدادات أولاً. هل تريد المتابعة؟")
                     .setNegativeButton("إلغاء") { _, _ -> renderBlock(false) }
                     .setPositiveButton("متابعة") { _, _ -> send(true) }
                     .setOnCancelListener { renderBlock(false) }

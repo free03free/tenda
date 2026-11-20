@@ -126,6 +126,29 @@ class SettingsActivity : LockedActivity() {
             etName.text.clear(); etMac.text.clear()
             exemptChanged()
         }
+        // الفحص الدوري للأجهزة الجديدة: تشغيل/إيقاف وفاصل مخصص بالثواني
+        findViewById<MaterialSwitch>(R.id.swSweep).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "sweep_on", "1") == "1"
+            setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "sweep_on", if (c) "1" else "0") }
+        }
+        findViewById<EditText>(R.id.etSweepSecs).apply {
+            setText(Prefs.getString(this@SettingsActivity, "sweep_secs", "30"))
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    val n = s?.toString()?.toLongOrNull()
+                    if (n != null) Prefs.putString(this@SettingsActivity, "sweep_secs", n.coerceIn(5L, 3600L).toString())
+                }
+            })
+        }
+        // اختيار طريقة القطع: التحكم الأبوي (الافتراضي) أو فلتر MAC
+        findViewById<android.widget.RadioGroup>(R.id.rgBlockMethod).apply {
+            check(if (Prefs.getString(this@SettingsActivity, "block_method", "parental") == "mac") R.id.rbMethodMac else R.id.rbMethodParental)
+            setOnCheckedChangeListener { _, id ->
+                Prefs.putString(this@SettingsActivity, "block_method", if (id == R.id.rbMethodMac) "mac" else "parental")
+            }
+        }
         // طلبات القطع صارت تُنفَّذ من داخل لوحة المودم نفسها، فأخفي بطاقة إعداد المسارات القديمة
         (findViewById<View>(R.id.btnSaveBlock).parent.parent as View).visibility = View.GONE
         etIp = findViewById(R.id.etIp); etUser = findViewById(R.id.etUser); etPass = findViewById(R.id.etPass)
