@@ -218,7 +218,7 @@
                     android:text="أجهزة مستثناة من القطع" android:textAppearance="?attr/textAppearanceTitleMedium" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="6dp" android:alpha="0.75"
-                    android:text="تبقى هذه الأجهزة على الإنترنت حتى مع تفعيل المفتاح. ضع {MACS} (مفصولة بفاصلة) أو {MACS_JSON} (مصفوفة JSON) في مسار أو جسم طلب القطع ليُدرجها التطبيق، ويصلح ذلك مع طلب يفعّل فلتر MAC بوضع القائمة البيضاء. لا يصلح مع فصل WAN لأنه يقطع عن الجميع. انسخ عنوان MAC من قائمة الأجهزة في لوحة المودم." />
+                    android:text="تبقى هذه الأجهزة على الإنترنت حتى مع تفعيل المفتاح (يُفعَّل فلتر MAC بوضع Whitelist وفيه هذه الأجهزة فقط). أضف هاتفك دائماً. انسخ عنوان MAC من قائمة الأجهزة في لوحة المودم." />
                 <LinearLayout android:id="@+id/exemptList" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="vertical" />
                 <com.google.android.material.textfield.TextInputLayout

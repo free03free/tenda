@@ -60,6 +60,8 @@ class WebPanelActivity : LockedActivity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.addJavascriptInterface(CapBridge(), "MCCap")
+        web.addJavascriptInterface(BlockBridge(), "MCBlk")
+        PanelBlock.web = java.lang.ref.WeakReference(web)
         defaultUa = web.settings.userAgentString
         web.settings.setSupportZoom(true)
         web.settings.builtInZoomControls = true
@@ -184,7 +186,7 @@ class WebPanelActivity : LockedActivity() {
         fun send(want: Boolean) {
             sw.isEnabled = false
             lifecycleScope.launch {
-                ModemClient.setBlock(this@WebPanelActivity, want).fold({
+                PanelBlock.setBlock(this@WebPanelActivity, want).fold({
                     renderBlock(want)
                     val r = ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80)
                     android.widget.Toast.makeText(this@WebPanelActivity,
@@ -201,14 +203,6 @@ class WebPanelActivity : LockedActivity() {
 
         sw.setOnCheckedChangeListener { _, want ->
             if (blockSilent) return@setOnCheckedChangeListener
-            val key = if (want) "block_on_path" else "block_off_path"
-            if (Prefs.getString(this, key).isBlank()) {
-                renderBlock(!want)
-                android.widget.Toast.makeText(this, "حدّد طلبات القطع والاستعادة من الإعدادات أولاً",
-                    android.widget.Toast.LENGTH_LONG).show()
-                startActivity(Intent(this, SettingsActivity::class.java))
-                return@setOnCheckedChangeListener
-            }
             // تنبيه واحد فقط: لا أجهزة مستثناة، فسيُقطع حتى عن هذا الهاتف وقد لا تستطيع الاستعادة
             if (want && Exempt.list(this).isEmpty()) {
                 androidx.appcompat.app.AlertDialog.Builder(this)
@@ -225,6 +219,11 @@ class WebPanelActivity : LockedActivity() {
 
     // ---- التقاط الطلبات التي ترسلها لوحة المودم نفسها (لمعرفة صيغة أمر الحظر الصحيحة لموديلك) ----
     private val captured = java.util.ArrayDeque<String>()
+
+    private inner class BlockBridge {
+        @android.webkit.JavascriptInterface
+        fun done(s: String) { PanelBlock.finish(s) }
+    }
 
     private inner class CapBridge {
         @android.webkit.JavascriptInterface

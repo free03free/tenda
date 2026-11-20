@@ -107,9 +107,8 @@ class SettingsActivity : LockedActivity() {
     private fun exemptChanged() {
         renderExempt()
         if (Prefs.getString(this, "block_state") != "1") return
-        saveBlock()
         lifecycleScope.launch {
-            ModemClient.setBlock(this@SettingsActivity, true)
+            PanelBlock.setBlock(this@SettingsActivity, true)
                 .fold({ toast("حُدّث القطع مع الاستثناءات") }, { toast("فشل تحديث القطع: ${it.message}") })
         }
     }
@@ -127,9 +126,8 @@ class SettingsActivity : LockedActivity() {
             etName.text.clear(); etMac.text.clear()
             exemptChanged()
         }
-        Prefs.seedBlockDefaults(this)
-        loadBlock()
-        findViewById<View>(R.id.btnSaveBlock).setOnClickListener { saveBlock(); toast("تم الحفظ") }
+        // طلبات القطع صارت تُنفَّذ من داخل لوحة المودم نفسها، فأخفي بطاقة إعداد المسارات القديمة
+        (findViewById<View>(R.id.btnSaveBlock).parent.parent as View).visibility = View.GONE
         etIp = findViewById(R.id.etIp); etUser = findViewById(R.id.etUser); etPass = findViewById(R.id.etPass)
         tvStatus = findViewById(R.id.tvStatus); tvLock = findViewById(R.id.tvLock); dot = findViewById(R.id.statusDot)
         val etPath = findViewById<EditText>(R.id.etPath)
