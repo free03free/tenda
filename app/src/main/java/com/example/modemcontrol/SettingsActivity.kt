@@ -12,12 +12,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
-import com.google.mlkit.common.model.DownloadConditions
-import com.google.mlkit.common.model.RemoteModelManager
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.TranslateRemoteModel
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.launch
 
 /** شاشة الإعدادات الوحيدة: بيانات المودم، اختبار الاتصال، إعادة التشغيل، قفل النمط. */
@@ -156,7 +150,6 @@ class SettingsActivity : LockedActivity() {
             sw.setOnCheckedChangeListener { _, c -> Prefs.putString(this, key, if (c) "1" else "0") }
         }
 
-        setupTranslation()
         val slider = findViewById<Slider>(R.id.sbWidth)
         val tvWidth = findViewById<TextView>(R.id.tvWidth)
         fun widthLabel(w: Int) = "عرض الصفحة: $w بكسل (الرقم الأقل = حجم أكبر)"
@@ -184,51 +177,6 @@ class SettingsActivity : LockedActivity() {
             saveReboot(etPath, etMethod, etBody)
             saveBlock()
             if (save()) finish()
-        }
-    }
-
-    /** تنزيل/حذف نموذج الترجمة (إنجليزي ← عربي) وتفعيل الترجمة التلقائية. */
-    private fun setupTranslation() {
-        val tvModel = findViewById<TextView>(R.id.tvModel)
-        val btnModel = findViewById<TextView>(R.id.btnModel)
-        val prog = findViewById<View>(R.id.progModel)
-        val swTr = findViewById<MaterialSwitch>(R.id.swTranslate)
-        val manager = RemoteModelManager.getInstance()
-        val model = TranslateRemoteModel.Builder(TranslateLanguage.ARABIC).build()
-
-        fun render() {
-            val ok = Prefs.getString(this, "model_ok") == "1"
-            tvModel.text = if (ok) "نموذج الترجمة (إنجليزي ← عربي): منزَّل ✓" else "نموذج الترجمة (إنجليزي ← عربي): غير منزَّل"
-            btnModel.text = if (ok) "حذف النموذج" else "تنزيل نموذج العربية (حوالي 30 ميغابايت)"
-            swTr.isChecked = ok && Prefs.getString(this, "translate") == "1"
-        }
-        render()
-        manager.isModelDownloaded(model).addOnSuccessListener { ok ->
-            Prefs.putString(this, "model_ok", if (ok) "1" else "0")
-            if (!ok) Prefs.putString(this, "translate", "0")
-            render()
-        }
-        btnModel.setOnClickListener {
-            if (Prefs.getString(this, "model_ok") == "1") {
-                manager.deleteDownloadedModel(model).addOnSuccessListener {
-                    Prefs.putString(this, "model_ok", "0"); Prefs.putString(this, "translate", "0"); render()
-                }
-            } else {
-                prog.visibility = View.VISIBLE
-                btnModel.isEnabled = false
-                val t = Translation.getClient(TranslatorOptions.Builder()
-                    .setSourceLanguage(TranslateLanguage.ENGLISH).setTargetLanguage(TranslateLanguage.ARABIC).build())
-                t.downloadModelIfNeeded(DownloadConditions.Builder().build())
-                    .addOnSuccessListener { Prefs.putString(this, "model_ok", "1"); toast("تم تنزيل نموذج العربية") }
-                    .addOnFailureListener { toast("فشل التنزيل، تأكد من اتصال الإنترنت") }
-                    .addOnCompleteListener { prog.visibility = View.GONE; btnModel.isEnabled = true; t.close(); render() }
-            }
-        }
-        swTr.setOnCheckedChangeListener { _, c ->
-            if (c && Prefs.getString(this, "model_ok") != "1") {
-                swTr.isChecked = false; toast("نزّل نموذج العربية أولاً"); return@setOnCheckedChangeListener
-            }
-            Prefs.putString(this, "translate", if (c) "1" else "0")
         }
     }
 

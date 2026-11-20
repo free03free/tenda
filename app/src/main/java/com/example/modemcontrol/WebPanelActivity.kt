@@ -9,15 +9,7 @@ import android.webkit.HttpAuthHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.JavascriptInterface
 import android.widget.TextView
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.Translator
-import com.google.mlkit.nl.translate.TranslatorOptions
-import org.json.JSONArray
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 import androidx.activity.addCallback
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -38,52 +30,6 @@ class WebPanelActivity : LockedActivity() {
     private var defaultUa = ""
     private val desktopUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     private var widthApplied = 0
-    private var translateApplied: Boolean? = null
-    private var translator: Translator? = null
-    private val trCache = ConcurrentHashMap<String, String>()
-
-    /** جسر JS ← Kotlin: يستقبل النصوص الإنجليزية ويعيد ترجمتها العربية للصفحة. */
-    private inner class Bridge {
-        @JavascriptInterface
-        fun translate(json: String) {
-            val arr = JSONArray(json)
-            val total = arr.length()
-            if (total == 0) return
-            val t = translatorOrNull() ?: return
-            val result = JSONObject()
-            val left = AtomicInteger(total)
-            fun done() {
-                if (left.decrementAndGet() == 0) {
-                    val out = synchronized(result) { result.toString() }
-                    runOnUiThread { web.evaluateJavascript("window.__mcApply&&window.__mcApply(${JSONObject.quote(out)})", null) }
-                }
-            }
-            for (i in 0 until total) {
-                val s = arr.getString(i)
-                val hit = trCache[s]
-                if (hit != null) { synchronized(result) { result.put(s, hit) }; done(); continue }
-                t.translate(s)
-                    .addOnSuccessListener { tr -> trCache[s] = tr; synchronized(result) { result.put(s, tr) }; done() }
-                    .addOnFailureListener { done() }
-            }
-        }
-    }
-
-    @Synchronized
-    private fun translatorOrNull(): Translator? {
-        if (Prefs.getString(this, "model_ok") != "1") return null
-        return translator ?: Translation.getClient(TranslatorOptions.Builder()
-            .setSourceLanguage(TranslateLanguage.ENGLISH).setTargetLanguage(TranslateLanguage.ARABIC).build())
-            .also { translator = it }
-    }
-
-    private fun applyTranslate() {
-        val want = Prefs.getString(this, "translate") == "1" && Prefs.getString(this, "model_ok") == "1"
-        findViewById<android.view.View>(R.id.btnTranslate).alpha = if (want) 1f else 0.5f
-        if (want == translateApplied) return
-        translateApplied = want
-        web.evaluateJavascript(if (want) TranslateJs.START else TranslateJs.STOP, null)
-    }
 
     private fun desktopWidth() =
         (Prefs.getString(this, "desktop_width", "900").toIntOrNull() ?: 900).coerceIn(600, 1400)
@@ -114,7 +60,6 @@ class WebPanelActivity : LockedActivity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         defaultUa = web.settings.userAgentString
-        web.addJavascriptInterface(Bridge(), "MCBridge")
         web.settings.setSupportZoom(true)
         web.settings.builtInZoomControls = true
         web.settings.displayZoomControls = false
@@ -139,7 +84,6 @@ class WebPanelActivity : LockedActivity() {
             override fun onPageFinished(v: WebView, url: String?) {
                 CookieManager.getInstance().flush()
                 if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
-                if (translateApplied == true) v.evaluateJavascript(TranslateJs.START, null)
                 val host = loadedHost ?: return
                 if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
                     Prefs.putString(this@WebPanelActivity, "last_url", url)
@@ -148,17 +92,6 @@ class WebPanelActivity : LockedActivity() {
             }
         }
         findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { web.reload() }
-        findViewById<android.view.View>(R.id.btnTranslate).setOnClickListener {
-            if (Prefs.getString(this, "model_ok") != "1") {
-                android.widget.Toast.makeText(this, "نزّل نموذج العربية من الإعدادات أولاً", android.widget.Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            val on = Prefs.getString(this, "translate") != "1"
-            Prefs.putString(this, "translate", if (on) "1" else "0")
-            android.widget.Toast.makeText(this, if (on) "الترجمة إلى العربية: مفعّلة" else "الترجمة: متوقفة",
-                android.widget.Toast.LENGTH_SHORT).show()
-            applyTranslate()
-        }
         findViewById<android.view.View>(R.id.btnDesktop).setOnClickListener {
             val on = Prefs.getString(this, "desktop_mode", "0") != "1"
             Prefs.putString(this, "desktop_mode", if (on) "1" else "0")
@@ -180,7 +113,6 @@ class WebPanelActivity : LockedActivity() {
     override fun onReady() {
         val modeChanged = applyMode()
         renderBlock(Prefs.getString(this, "block_state") == "1")
-        applyTranslate()
         val host = ModemClient.normalize(Prefs.getString(this, "ip"))
         if (host == null) {
             if (!askedSettings) { askedSettings = true; startActivity(Intent(this, SettingsActivity::class.java)) }
@@ -271,7 +203,6 @@ class WebPanelActivity : LockedActivity() {
     }
 
     override fun onDestroy() {
-        translator?.close()
         super.onDestroy()
     }
 

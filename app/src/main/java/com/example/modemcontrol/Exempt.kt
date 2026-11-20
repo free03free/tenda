@@ -8,10 +8,13 @@ import org.json.JSONObject
 object Exempt {
     data class Dev(val name: String, val mac: String)
 
-    /** يقبل AA:BB:CC:DD:EE:FF أو AA-BB-... أو بدون فواصل، ويُرجع الصيغة الموحّدة أو null. */
+    private val withSep = Regex("(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}([:\\-.][0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f])")
+    private val plain = Regex("(?<![0-9A-Fa-f])[0-9A-Fa-f]{12}(?![0-9A-Fa-f])")
+
+    /** يستخرج أول عنوان MAC من أي نص ملصوق (مثل "MAC (34:79:16:c7:83:25)") ويوحّد صيغته، أو null. */
     fun normalize(s: String): String? {
-        val h = s.trim().replace(":", "").replace("-", "").replace(".", "")
-        return if (Regex("[0-9A-Fa-f]{12}").matches(h)) h.uppercase().chunked(2).joinToString(":") else null
+        val m = withSep.find(s)?.value ?: plain.find(s)?.value ?: return null
+        return m.replace(Regex("[:\\-.]"), "").uppercase().chunked(2).joinToString(":")
     }
 
     fun list(c: Context): List<Dev> = runCatching {
@@ -31,10 +34,13 @@ object Exempt {
 
     fun remove(c: Context, mac: String) = save(c, list(c).filter { it.mac != mac })
 
-    /** يستبدل {MACS} (مفصولة بفاصلة) و{MACS_JSON} (مصفوفة JSON) في المسار أو الجسم. */
+    /** يستبدل {MACS} (فاصلة) و{MACS_CR}/{MACS_LF} (فاصل سطر مرمّز) و{MACS_JSON} في المسار أو الجسم. */
     fun apply(c: Context, text: String): String {
         if (!text.contains("{MACS")) return text
         val macs = list(c).map { it.mac }
-        return text.replace("{MACS_JSON}", JSONArray(macs).toString()).replace("{MACS}", macs.joinToString(","))
+        return text.replace("{MACS_JSON}", JSONArray(macs).toString())
+            .replace("{MACS_CR}", macs.joinToString("%0D"))
+            .replace("{MACS_LF}", macs.joinToString("%0A"))
+            .replace("{MACS}", macs.joinToString(","))
     }
 }
