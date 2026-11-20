@@ -7,6 +7,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class SettingsActivity : LockedActivity() {
     private var pending = 0 // 1 = تغيير النمط، 2 = إزالته
@@ -48,6 +49,11 @@ class SettingsActivity : LockedActivity() {
         etBody.setText(Prefs.getString(this, "reboot_body"))
         refresh()
 
+        for ((id, key, def) in listOf(Triple(R.id.swAutoOpen, "auto_open", "0"), Triple(R.id.swAutoLogin, "auto_login", "1"))) {
+            val sw = findViewById<MaterialSwitch>(id)
+            sw.isChecked = Prefs.getString(this, key, def) == "1"
+            sw.setOnCheckedChangeListener { _, c -> Prefs.putString(this, key, if (c) "1" else "0") }
+        }
         findViewById<android.view.View>(R.id.btnSetPattern).setOnClickListener {
             if (Prefs.hasPattern(this)) verifyThen(1) else launchCreate()
         }

@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.google.android.material.color.MaterialColors
 import kotlin.math.hypot
 
 /** شبكة 3×3 لرسم النمط. تُرجع قائمة أرقام النقاط (0..8) عند رفع الإصبع. */
@@ -18,6 +19,9 @@ class PatternView @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
     private var fy = 0f
     private var drawing = false
     private var error = false
+    private val cPrimary = MaterialColors.getColor(c, com.google.android.material.R.attr.colorPrimary, 0xFF4F46E5.toInt())
+    private val cError = MaterialColors.getColor(c, com.google.android.material.R.attr.colorError, 0xFFB3261E.toInt())
+    private val cIdle = MaterialColors.getColor(c, com.google.android.material.R.attr.colorOutline, 0xFF888888.toInt())
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -30,13 +34,14 @@ class PatternView @JvmOverloads constructor(c: Context, a: AttributeSet? = null)
     private fun dp(v: Float) = v * resources.displayMetrics.density
 
     override fun onDraw(canvas: Canvas) {
-        val color = if (error) 0xFFB3261E.toInt() else 0xFF6750A4.toInt()
+        val color = if (error) cError else cPrimary
         line.color = color
         for (k in 1 until path.size) canvas.drawLine(cx(path[k - 1]), cy(path[k - 1]), cx(path[k]), cy(path[k]), line)
         if (drawing && path.isNotEmpty()) canvas.drawLine(cx(path.last()), cy(path.last()), fx, fy, line)
         for (i in 0..8) {
             val sel = i in path
-            dot.color = if (sel) color else 0xFF888888.toInt()
+            if (sel) { dot.color = (color and 0x00FFFFFF) or 0x33000000; canvas.drawCircle(cx(i), cy(i), dp(28f), dot) }
+            dot.color = if (sel) color else cIdle
             canvas.drawCircle(cx(i), cy(i), if (sel) dp(14f) else dp(9f), dot)
         }
     }
