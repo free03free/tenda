@@ -236,7 +236,7 @@
                     android:text="فتح التطبيق تلقائياً عند انتهاء مدة القطع" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="4dp" android:alpha="0.75"
-                    android:text="إن كان التطبيق في الخلفية عند انتهاء المدة يفتح نفسه ثم يوقف السويتش ويستعيد الإنترنت. يتطلب إذن \"العرض فوق التطبيقات الأخرى\" (يُطلب عند التفعيل)." />
+                    android:text="إن كان التطبيق في الخلفية عند انتهاء المدة يفتح نفسه ثم يوقف السويتش ويستعيد الإنترنت. يتطلب إذن &quot;العرض فوق التطبيقات الأخرى&quot; (يُطلب عند التفعيل)." />
                 <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swExpireStopBg"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
