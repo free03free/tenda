@@ -227,6 +227,8 @@ object PanelBlock {
         }
         Prefs.putString(c, "block_state", if (on) "1" else "0")
         if (on) Prefs.putString(c, "block_method_active", method)
-        Result.success(200)
+        // 201 = تغيّر شيء فعلاً (مثلاً قُطع جهاز جديد)، 200 = لا تغيير (لا أجهزة جديدة / لا شيء للاستعادة)
+        val changed = !(msg.contains("ولا أجهزة جديدة") || msg.contains("لا شيء للاستعادة"))
+        Result.success(if (changed) 201 else 200)
     }
 }

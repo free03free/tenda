@@ -109,7 +109,7 @@ class SettingsActivity : LockedActivity() {
         if (Prefs.getString(this, "block_state") != "1") return
         lifecycleScope.launch {
             PanelBlock.setBlock(this@SettingsActivity, true)
-                .fold({ toast("حُدّث القطع مع الاستثناءات") }, { toast("فشل تحديث القطع: ${it.message}") })
+                .fold({ toast("حُدّث القطع مع الاستثناءات"); PanelBlock.web?.get()?.reload() }, { toast("فشل تحديث القطع: ${it.message}") })
         }
     }
 
@@ -135,6 +135,20 @@ class SettingsActivity : LockedActivity() {
                 if (c) BgKeep.askExemptions(this@SettingsActivity)
             }
         }
+        findViewById<MaterialSwitch>(R.id.swExpireLaunch).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "expire_launch", "1") == "1"
+            setOnCheckedChangeListener { _, c ->
+                Prefs.putString(this@SettingsActivity, "expire_launch", if (c) "1" else "0")
+                if (c && !BgKeep.canLaunch(this@SettingsActivity)) {
+                    toast("فعّل \"العرض فوق التطبيقات الأخرى\" لـ ModemControl ثم ارجع")
+                    BgKeep.askOverlay(this@SettingsActivity)
+                }
+            }
+        }
+        findViewById<MaterialSwitch>(R.id.swExpireStopBg).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "expire_stop_bg", "0") == "1"
+            setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "expire_stop_bg", if (c) "1" else "0") }
+        }
         findViewById<MaterialSwitch>(R.id.swRefreshAfter).apply {
             isChecked = Prefs.getString(this@SettingsActivity, "refresh_after", "1") == "1"
             setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "refresh_after", if (c) "1" else "0") }
@@ -143,6 +157,10 @@ class SettingsActivity : LockedActivity() {
         findViewById<MaterialSwitch>(R.id.swSweep).apply {
             isChecked = Prefs.getString(this@SettingsActivity, "sweep_on", "1") == "1"
             setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "sweep_on", if (c) "1" else "0") }
+        }
+        findViewById<MaterialSwitch>(R.id.swSweepRefresh).apply {
+            isChecked = Prefs.getString(this@SettingsActivity, "sweep_refresh", "1") == "1"
+            setOnCheckedChangeListener { _, c -> Prefs.putString(this@SettingsActivity, "sweep_refresh", if (c) "1" else "0") }
         }
         findViewById<EditText>(R.id.etSweepSecs).apply {
             setText(Prefs.getString(this@SettingsActivity, "sweep_secs", "30"))

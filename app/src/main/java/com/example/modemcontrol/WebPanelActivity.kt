@@ -30,6 +30,7 @@ class WebPanelActivity : LockedActivity() {
     private var defaultUa = ""
     private val desktopUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     private var widthApplied = 0
+    private var inForeground = false
 
     private fun desktopWidth() =
         (Prefs.getString(this, "desktop_width", "900").toIntOrNull() ?: 900).coerceIn(600, 1400)
@@ -129,7 +130,13 @@ class WebPanelActivity : LockedActivity() {
                 if (Prefs.getString(this@WebPanelActivity, "sweep_on", "1") == "1" &&
                     Prefs.getString(this@WebPanelActivity, "block_state") == "1" &&
                     Exempt.list(this@WebPanelActivity).isNotEmpty())
-                    PanelBlock.setBlock(this@WebPanelActivity, true, sweep = true)
+                    PanelBlock.setBlock(this@WebPanelActivity, true, sweep = true).onSuccess { code ->
+                        // قُطع جهاز جديد: حدّث صفحة المودم إن كان الخيار مفعّلاً
+                        if (code == 201 && Prefs.getString(this@WebPanelActivity, "sweep_refresh", "1") == "1") {
+                            toast("قُطع الإنترنت عن جهاز جديد وحُدّثت الصفحة")
+                            web.reload()
+                        }
+                    }
             }
         }
         // الرجوع يتنقل داخل اللوحة، وعند أول صفحة يُخفي التطبيق دون إغلاقه
@@ -255,11 +262,21 @@ class WebPanelActivity : LockedActivity() {
         if (left > 0) { renderBlock(true); return }
         if (autoRestoring || System.currentTimeMillis() < restoreRetryAt) return
         autoRestoring = true
+        // انتهت المدة والتطبيق في الخلفية: افتحه أولاً ليظهر للمستخدم (يتطلب إذن العرض فوق التطبيقات)
+        if (!inForeground && Prefs.getString(this, "expire_launch", "1") == "1" && BgKeep.canLaunch(this)) {
+            runCatching {
+                startActivity(Intent(this, WebPanelActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            }
+        }
         lifecycleScope.launch {
             PanelBlock.setBlock(this@WebPanelActivity, false).fold({
                 Prefs.putString(this@WebPanelActivity, "block_until", "0")
                 renderBlock(false)
+                verifyThenRefresh(false) // تأكيد وتحديث صفحة المودم بعد الاستعادة التلقائية أيضاً
                 android.widget.Toast.makeText(this@WebPanelActivity, "انتهت مدة القطع وأُعيد الإنترنت", android.widget.Toast.LENGTH_LONG).show()
+                // بعد إيقاف السويتش: أوقف العمل في الخلفية (الخدمة الأمامية) إن كان الخيار مفعّلاً
+                if (Prefs.getString(this@WebPanelActivity, "expire_stop_bg", "0") == "1") BgKeep.stop(this@WebPanelActivity)
             }, {
                 restoreRetryAt = System.currentTimeMillis() + 15000
                 android.widget.Toast.makeText(this@WebPanelActivity, "تعذّرت الاستعادة التلقائية: ${it.message}\nسأعيد المحاولة", android.widget.Toast.LENGTH_LONG).show()
@@ -307,6 +324,7 @@ class WebPanelActivity : LockedActivity() {
             sw.isEnabled = false
             lifecycleScope.launch {
                 PanelBlock.setBlock(this@WebPanelActivity, want).fold({
+                    if (want) BgKeep.apply(this@WebPanelActivity) // قد تكون الخدمة أُوقفت بعد قطع سابق
                     Prefs.putString(this@WebPanelActivity, "block_until",
                         if (want && minutes > 0) (System.currentTimeMillis() + minutes * 60000).toString() else "0")
                     renderBlock(want)
@@ -457,7 +475,13 @@ class WebPanelActivity : LockedActivity() {
         super.onDestroy()
     }
 
+    override fun onResume() {
+        super.onResume()
+        inForeground = true
+    }
+
     override fun onPause() {
+        inForeground = false
         CookieManager.getInstance().flush()
         super.onPause()
     }

@@ -230,6 +230,20 @@
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="4dp" android:alpha="0.75"
                     android:text="يقرأ التطبيق الحالة من المودم مرة ثانية للتأكد (ويعيد الإرسال مرة واحدة إن لم تطابق)، ثم يعيد تحميل اللوحة لتظهر الإعدادات الجديدة. زر التحديث في الأعلى يفعل الشيء نفسه." />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swExpireLaunch"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="فتح التطبيق تلقائياً عند انتهاء مدة القطع" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:alpha="0.75"
+                    android:text="إن كان التطبيق في الخلفية عند انتهاء المدة يفتح نفسه ثم يوقف السويتش ويستعيد الإنترنت. يتطلب إذن \"العرض فوق التطبيقات الأخرى\" (يُطلب عند التفعيل)." />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swExpireStopBg"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="إيقاف العمل في الخلفية بعد إيقاف السويتش" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:alpha="0.75"
+                    android:text="بعد انتهاء المدة وإيقاف السويتش تُوقَف الخدمة والإشعار الدائم. تعود تلقائياً عند فتح التطبيق أو تشغيل قطع جديد." />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -263,6 +277,13 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:textDirection="ltr" />
                 </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swSweepRefresh"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="تحديث صفحة المودم عند قطع جهاز جديد في الفحص الدوري" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:alpha="0.75"
+                    android:text="تُحدَّث الصفحة فقط إذا وجد الفحص جهازاً جديداً وقطعه، وليس في كل فحص." />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="6dp" android:alpha="0.75"
                     android:text="عند إيقاف الفحص لا يُقطع الإنترنت عن الأجهزة التي تتصل لاحقاً إلا إذا أعدت تشغيل المفتاح." />
