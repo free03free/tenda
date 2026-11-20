@@ -115,6 +115,7 @@ class WebPanelActivity : LockedActivity() {
             var waited = 0L
             while (true) {
                 kotlinx.coroutines.delay(1000)
+                tickTimer()
                 waited++
                 val secs = (Prefs.getString(this@WebPanelActivity, "sweep_secs", "30").toLongOrNull() ?: 30L).coerceIn(5L, 3600L)
                 if (waited < secs) continue
@@ -135,6 +136,7 @@ class WebPanelActivity : LockedActivity() {
     override fun onReady() {
         val modeChanged = applyMode()
         renderBlock(Prefs.getString(this, "block_state") == "1")
+        tickTimer()
         val host = ModemClient.normalize(Prefs.getString(this, "ip"))
         if (host == null) {
             if (!askedSettings) { askedSettings = true; startActivity(Intent(this, SettingsActivity::class.java)) }
@@ -185,23 +187,92 @@ class WebPanelActivity : LockedActivity() {
         v.evaluateJavascript(js) { if (it?.contains("ok") == true) attempts++ }
     }
 
-    /** مفتاح قطع الإنترنت: يرسل طلب القطع/الاستعادة المحدد في الإعدادات، ويتراجع عند الفشل. */
+    /** مفتاح قطع الإنترنت: يرسل طلب القطع/الاستعادة، ويتراجع عند الفشل. القطع يمكن أن يكون لمدة محددة فتُستعاد تلقائياً. */
     private var blockSilent = false
+    private var autoRestoring = false
+    private var restoreRetryAt = 0L
+
+    private fun blockUntil() = Prefs.getString(this, "block_until", "0").toLongOrNull() ?: 0L
+
+    private fun fmtLeft(ms: Long): String {
+        val t = (ms / 1000).coerceAtLeast(0)
+        val h = t / 3600; val m = (t % 3600) / 60; val sec = t % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
+    }
+
     private fun renderBlock(on: Boolean) {
         val sw = findViewById<MaterialSwitch>(R.id.swBlock)
         blockSilent = true; sw.isChecked = on; blockSilent = false
-        findViewById<TextView>(R.id.tvBlock).text =
-            if (on) "الإنترنت مقطوع عن كل الأجهزة" else "قطع الإنترنت عن كل الأجهزة"
+        val until = blockUntil()
+        findViewById<TextView>(R.id.tvBlock).text = when {
+            !on -> "قطع الإنترنت عن كل الأجهزة"
+            until > 0 -> "الإنترنت مقطوع، باقي " + fmtLeft(until - System.currentTimeMillis())
+            else -> "الإنترنت مقطوع عن كل الأجهزة"
+        }
+    }
+
+    /** يُستدعى كل ثانية: يحدّث العدّاد، وعند انتهاء المدة يستعيد الإنترنت تلقائياً. */
+    private fun tickTimer() {
+        val until = blockUntil()
+        if (Prefs.getString(this, "block_state") != "1" || until == 0L) return
+        val left = until - System.currentTimeMillis()
+        if (left > 0) { renderBlock(true); return }
+        if (autoRestoring || System.currentTimeMillis() < restoreRetryAt) return
+        autoRestoring = true
+        lifecycleScope.launch {
+            PanelBlock.setBlock(this@WebPanelActivity, false).fold({
+                Prefs.putString(this@WebPanelActivity, "block_until", "0")
+                renderBlock(false)
+                android.widget.Toast.makeText(this@WebPanelActivity, "انتهت مدة القطع وأُعيد الإنترنت", android.widget.Toast.LENGTH_LONG).show()
+            }, {
+                restoreRetryAt = System.currentTimeMillis() + 15000
+                android.widget.Toast.makeText(this@WebPanelActivity, "تعذّرت الاستعادة التلقائية: ${it.message}\nسأعيد المحاولة", android.widget.Toast.LENGTH_LONG).show()
+            })
+            autoRestoring = false
+        }
+    }
+
+    /** نافذة اختيار مدة القطع. minutes = 0 تعني بلا مدة (حتى تطفئه يدوياً). */
+    private fun askDuration(onPick: (Long) -> Unit, onCancel: () -> Unit) {
+        val labels = arrayOf("بدون مدة (حتى أطفئه)", "دقيقة واحدة", "5 دقائق", "10 دقائق", "30 دقيقة", "ساعة", "ساعتان", "مدة مخصصة…")
+        val mins = longArrayOf(0, 1, 5, 10, 30, 60, 120, -1)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("مدة قطع الإنترنت")
+            .setItems(labels) { _, i ->
+                if (mins[i] >= 0) { onPick(mins[i]); return@setItems }
+                val et = android.widget.EditText(this).apply {
+                    hint = "عدد الدقائق"; inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    textDirection = android.view.View.TEXT_DIRECTION_LTR
+                }
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("مدة مخصصة بالدقائق")
+                    .setView(et)
+                    .setNegativeButton("إلغاء") { _, _ -> onCancel() }
+                    .setPositiveButton("قطع") { _, _ ->
+                        val n = et.text.toString().toLongOrNull()
+                        if (n == null || n <= 0) {
+                            android.widget.Toast.makeText(this, "أدخل عدداً صحيحاً أكبر من صفر", android.widget.Toast.LENGTH_SHORT).show()
+                            onCancel()
+                        } else onPick(n.coerceAtMost(7 * 24 * 60L))
+                    }
+                    .setOnCancelListener { onCancel() }
+                    .show()
+            }
+            .setNegativeButton("إلغاء") { _, _ -> onCancel() }
+            .setOnCancelListener { onCancel() }
+            .show()
     }
 
     private fun setupBlockSwitch() {
         val sw = findViewById<MaterialSwitch>(R.id.swBlock)
         renderBlock(Prefs.getString(this, "block_state") == "1")
 
-        fun send(want: Boolean) {
+        fun send(want: Boolean, minutes: Long = 0) {
             sw.isEnabled = false
             lifecycleScope.launch {
                 PanelBlock.setBlock(this@WebPanelActivity, want).fold({
+                    Prefs.putString(this@WebPanelActivity, "block_until",
+                        if (want && minutes > 0) (System.currentTimeMillis() + minutes * 60000).toString() else "0")
                     renderBlock(want)
                     val r = ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80)
                     android.widget.Toast.makeText(this@WebPanelActivity,
@@ -218,17 +289,20 @@ class WebPanelActivity : LockedActivity() {
 
         sw.setOnCheckedChangeListener { _, want ->
             if (blockSilent) return@setOnCheckedChangeListener
-            // تنبيه واحد فقط: لا أجهزة مستثناة، فسيُقطع حتى عن هذا الهاتف وقد لا تستطيع الاستعادة
-            if (want && Exempt.list(this).isEmpty()) {
+            if (!want) { send(false); return@setOnCheckedChangeListener }
+            // اختيار المدة ثم الإرسال
+            val pickAndSend = { askDuration({ m -> send(true, m) }, { renderBlock(false) }) }
+            // تنبيه واحد فقط: لا أجهزة مستثناة، فسيُقطع حتى عن هذا الهاتف
+            if (Exempt.list(this).isEmpty()) {
                 androidx.appcompat.app.AlertDialog.Builder(this)
                     .setMessage("لا توجد أجهزة مستثناة. سيُقطع الإنترنت عن كل الأجهزة (تبقى على الوايفاي) وقد يشمل هذا الهاتف. أضف هاتفك للمستثنين من الإعدادات أولاً. هل تريد المتابعة؟")
                     .setNegativeButton("إلغاء") { _, _ -> renderBlock(false) }
-                    .setPositiveButton("متابعة") { _, _ -> send(true) }
+                    .setPositiveButton("متابعة") { _, _ -> pickAndSend() }
                     .setOnCancelListener { renderBlock(false) }
                     .show()
                 return@setOnCheckedChangeListener
             }
-            send(want)
+            pickAndSend()
         }
     }
 
