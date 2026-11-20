@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="التحكم بالمودم" android:textSize="24sp" android:textStyle="bold" />
+        <EditText android:id="@+id/etIp" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:hint="عنوان IP (مثل 192.168.1.1)"
+            android:inputType="textUri" android:textDirection="ltr" />
+        <EditText android:id="@+id/etUser" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="اسم المستخدم" android:inputType="text" android:textDirection="ltr" />
+        <EditText android:id="@+id/etPass" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="كلمة المرور" android:inputType="textPassword" android:textDirection="ltr" />
+        <Button android:id="@+id/btnSave" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="حفظ" />
+        <Button android:id="@+id/btnTest" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="اختبار الاتصال" />
+        <Button android:id="@+id/btnPanel" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="فتح لوحة المودم" />
+        <Button android:id="@+id/btnReboot" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="إعادة تشغيل المودم" />
+        <Button android:id="@+id/btnSettings" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:text="الإعدادات" />
+        <TextView android:id="@+id/tvStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
+</ScrollView>
