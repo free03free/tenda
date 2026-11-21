@@ -25,6 +25,8 @@ object Prefs {
 
     fun getString(c: Context, k: String, d: String = "") = sp(c).getString(k, d) ?: d
     fun putString(c: Context, k: String, v: String) = sp(c).edit().putString(k, v).apply()
+    /** كتابة فورية على القرص (commit) كي لا تضيع القيمة إذا قُتلت العملية بالسحب من التطبيقات الأخيرة. */
+    fun putStringNow(c: Context, k: String, v: String) { sp(c).edit().putString(k, v).commit() }
     fun getLong(c: Context, k: String) = sp(c).getLong(k, 0L)
     fun putLong(c: Context, k: String, v: Long) = sp(c).edit().putLong(k, v).apply()
 

@@ -175,6 +175,7 @@ class WebPanelActivity : LockedActivity() {
         val last = Prefs.getString(this, "last_url")
         val sameHost = last.isNotEmpty() && Uri.parse(last).host == host.substringBefore(':') && !isLoginUrl(last)
         resumeUrl = if (sameHost) last else null
+        if (resumeUrl != null) web.postDelayed({ resumeUrl = null }, 25_000)
         web.loadUrl(if (sameHost) last else "http://$host")
     }
 
@@ -187,7 +188,19 @@ class WebPanelActivity : LockedActivity() {
     private fun saveLast(url: String) {
         val host = loadedHost ?: return
         if (Uri.parse(url).host != host.substringBefore(':') || isLoginUrl(url)) return
-        Prefs.putString(this, "last_url", url)
+        // لا تستبدل الصفحة المحفوظة بصفحة تحويل مؤقتة (جذر/دخول) ما دمنا لم نعد إليها بعد
+        if (resumeUrl != null && url != resumeUrl) return
+        if (Prefs.getString(this, "last_url") != url) Prefs.putStringNow(this, "last_url", url)
+    }
+
+    /** بعد الدخول التلقائي: إن بقيت الصفحة غير صفحتك (مثلاً دخول عبر ajax دون إعادة تحميل) افتح صفحتك المحفوظة. */
+    private fun tryResume() {
+        val r = resumeUrl ?: return
+        val cur = web.url
+        if (cur == null || cur == r) { resumeUrl = null; return }
+        if (isLoginUrl(cur)) return
+        resumeUrl = null
+        web.loadUrl(r)
     }
 
     override fun onStop() {
@@ -228,7 +241,13 @@ class WebPanelActivity : LockedActivity() {
               return 'ok';
             })(${JSONObject.quote(Prefs.getString(this, "user"))},${JSONObject.quote(pass)})
         """.trimIndent()
-        v.evaluateJavascript(js) { if (it?.contains("ok") == true) attempts++ }
+        v.evaluateJavascript(js) {
+            if (it?.contains("ok") == true) {
+                attempts++
+                v.postDelayed({ tryResume() }, 4000)
+                v.postDelayed({ tryResume() }, 8000)
+            }
+        }
     }
 
     /** مفتاح قطع الإنترنت: يرسل طلب القطع/الاستعادة، ويتراجع عند الفشل. القطع يمكن أن يكون لمدة محددة فتُستعاد تلقائياً. */
