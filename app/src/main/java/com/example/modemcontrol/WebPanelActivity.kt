@@ -92,9 +92,22 @@ class WebPanelActivity : LockedActivity() {
                 if (desktopApplied == true) v.evaluateJavascript(viewportJs(), null)
                 val host = loadedHost ?: return
                 if (url != null && Uri.parse(url).host == host.substringBefore(':')) {
-                    Prefs.putString(this@WebPanelActivity, "last_url", url)
+                    // بعد تسجيل الدخول التلقائي يفتح المودم صفحته الرئيسية: ارجع إلى آخر صفحة كنت فيها
+                    val r = resumeUrl
+                    if (r != null && attempts > 0 && !isLoginUrl(url) && url != r) {
+                        resumeUrl = null
+                        v.loadUrl(r)
+                        return
+                    }
+                    if (r != null && url == r) resumeUrl = null
+                    saveLast(url)
                     autoLogin(v, url, host)
                 }
+            }
+
+            // يلتقط أيضاً تنقّل الصفحات داخل اللوحة (hash/history) الذي لا يُطلق onPageFinished
+            override fun doUpdateVisitedHistory(v: WebView, url: String?, isReload: Boolean) {
+                if (url != null) saveLast(url)
             }
         }
         findViewById<android.view.View>(R.id.btnRefresh).setOnClickListener { refreshWithVerify() }
@@ -160,8 +173,26 @@ class WebPanelActivity : LockedActivity() {
         attempts = 0
         findViewById<TextView>(R.id.tvHost).text = host
         val last = Prefs.getString(this, "last_url")
-        val sameHost = last.isNotEmpty() && Uri.parse(last).host == host.substringBefore(':')
+        val sameHost = last.isNotEmpty() && Uri.parse(last).host == host.substringBefore(':') && !isLoginUrl(last)
+        resumeUrl = if (sameHost) last else null
         web.loadUrl(if (sameHost) last else "http://$host")
+    }
+
+    /** آخر صفحة كنت فيها قبل الخروج؛ نعود إليها إن أعاد المودم توجيهنا لصفحة الدخول ثم الرئيسية. */
+    private var resumeUrl: String? = null
+
+    private fun isLoginUrl(u: String) = u.contains("login", ignoreCase = true)
+
+    /** يحفظ آخر صفحة حقيقية داخل المودم (لا صفحة الدخول) لتُفتح عند الدخول التالي. */
+    private fun saveLast(url: String) {
+        val host = loadedHost ?: return
+        if (Uri.parse(url).host != host.substringBefore(':') || isLoginUrl(url)) return
+        Prefs.putString(this, "last_url", url)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        runCatching { web.url?.let { saveLast(it) } }
     }
 
     /** يطبّق وضع سطح المكتب/الهاتف؛ يرجع true إذا تغيّر الوضع. */

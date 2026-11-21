@@ -69,7 +69,7 @@ object PanelHost {
         val w = host ?: create(c).also { host = it }
         attempts = 0
         val last = Prefs.getString(c, "last_url")
-        val same = last.isNotEmpty() && Uri.parse(last).host == ip.substringBefore(':')
+        val same = last.isNotEmpty() && Uri.parse(last).host == ip.substringBefore(':') && !last.contains("login", true)
         w.loadUrl(if (same) last else "http://$ip")
         // إن لم يكن للواجهة WebView حيّ فهذا هو مرجع اللوحة
         if (PanelBlock.web?.get() == null) PanelBlock.web = WeakReference(w)
