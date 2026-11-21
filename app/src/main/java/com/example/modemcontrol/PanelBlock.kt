@@ -148,6 +148,24 @@ object PanelBlock {
         error:function(x){done({err:'فشل القراءة HTTP '+x.status});}});
     }"""
 
+    /** هل الصفحة الحالية جاهزة ومسجّل الدخول فيها؟ (قراءة فقط، بلا أي تعديل في المودم) */
+    suspend fun probe(c: Context): Boolean = lock.withLock {
+        val w = web?.get() ?: return@withLock false
+        val method = Prefs.getString(c, "block_method_active", Prefs.getString(c, "block_method", "parental"))
+        val url = if (method == "mac") "goform/getNAT?random='+Math.random()+'&modules=macFilter"
+                  else "goform/getParentControl?random='+Math.random()+'&modules=parentCtrlList"
+        val js = """(function(){var j=window.jQuery;function d(s){try{MCBlk.done('P|'+s);}catch(e){}}
+          if(!j||!j.ajax){d('no');return;}
+          j.ajax({type:'GET',dataType:'text',url:'$url',
+            success:function(t){try{JSON.parse(t);d('ok');}catch(e){d('nologin');}},error:function(){d('err');}});})()"""
+        val def = CompletableDeferred<String>()
+        pending = def
+        withContext(Dispatchers.Main) { w.evaluateJavascript(js, null) }
+        val raw = withTimeoutOrNull(8000) { def.await() }
+        pending = null
+        raw == "P|ok"
+    }
+
     /** يقرأ الحالة الفعلية من المودم ويقارنها بالمتوقع. النتيجة: نص التأكيد، أو فشل بسبب عدم المطابقة. */
     suspend fun verify(c: Context, expectOn: Boolean): Result<String> = lock.withLock {
         val w = web?.get() ?: return@withLock Result.failure(IllegalStateException("لوحة المودم غير مفتوحة"))

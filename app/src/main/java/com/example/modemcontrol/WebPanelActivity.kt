@@ -257,7 +257,12 @@ class WebPanelActivity : LockedActivity() {
     /** يُستدعى كل ثانية: يحدّث العدّاد، وعند انتهاء المدة يستعيد الإنترنت تلقائياً. */
     private fun tickTimer() {
         val until = blockUntil()
-        if (Prefs.getString(this, "block_state") != "1" || until == 0L) return
+        if (Prefs.getString(this, "block_state") != "1") {
+            // أعادت الخدمة الإنترنت في الخلفية: حدّث المفتاح
+            if (findViewById<MaterialSwitch>(R.id.swBlock).isChecked) renderBlock(false)
+            return
+        }
+        if (until == 0L) return
         val left = until - System.currentTimeMillis()
         if (left > 0) { renderBlock(true); return }
         if (autoRestoring || System.currentTimeMillis() < restoreRetryAt) return
@@ -271,11 +276,19 @@ class WebPanelActivity : LockedActivity() {
             }
         }
         lifecycleScope.launch {
+            // الصفحة لم تُحمَّل بعد: انتظر بصمت (تتولّى الخدمة الاستعادة) بدل رسالة فشل مزعجة
+            if (!PanelBlock.probe(this@WebPanelActivity)) {
+                restoreRetryAt = System.currentTimeMillis() + 5000
+                autoRestoring = false
+                return@launch
+            }
             PanelBlock.setBlock(this@WebPanelActivity, false).fold({
                 Prefs.putString(this@WebPanelActivity, "block_until", "0")
                 renderBlock(false)
                 verifyThenRefresh(false) // تأكيد وتحديث صفحة المودم بعد الاستعادة التلقائية أيضاً
                 android.widget.Toast.makeText(this@WebPanelActivity, "انتهت مدة القطع وأُعيد الإنترنت", android.widget.Toast.LENGTH_LONG).show()
+                // أعد الدخول التلقائي والعمل في الخلفية إلى وضعهما السابق
+                TimedProfile.leave(this@WebPanelActivity)
                 // بعد إيقاف السويتش: أوقف العمل في الخلفية (الخدمة الأمامية) إن كان الخيار مفعّلاً
                 if (Prefs.getString(this@WebPanelActivity, "expire_stop_bg", "0") == "1") BgKeep.stop(this@WebPanelActivity)
             }, {
@@ -328,6 +341,9 @@ class WebPanelActivity : LockedActivity() {
                     if (want) BgKeep.apply(this@WebPanelActivity) // قد تكون الخدمة أُوقفت بعد قطع سابق
                     Prefs.putString(this@WebPanelActivity, "block_until",
                         if (want && minutes > 0) (System.currentTimeMillis() + minutes * 60000).toString() else "0")
+                    // قطع بمدة: فعّل الدخول التلقائي والعمل في الخلفية مؤقتاً. إيقاف السويتش يدوياً: أعد الإعدادات السابقة.
+                    if (want && minutes > 0) TimedProfile.enter(this@WebPanelActivity)
+                    else if (!want) TimedProfile.leave(this@WebPanelActivity)
                     renderBlock(want)
                     verifyThenRefresh(want)
                     val r = ModemClient.lastResponse.replace(Regex("\\s+"), " ").take(80)
@@ -472,7 +488,7 @@ class WebPanelActivity : LockedActivity() {
     }
 
     override fun onDestroy() {
-        if (PanelBlock.web?.get() === web) PanelBlock.web = null
+        if (PanelBlock.web?.get() === web) { PanelBlock.web = null; PanelHost.rebind() }
         super.onDestroy()
     }
 

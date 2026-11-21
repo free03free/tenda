@@ -40,6 +40,9 @@ class KeepAliveService : Service() {
     private var wifi: WifiManager.WifiLock? = null
     private var expiredNotified = false
     private var armedFor = -1L
+    @Volatile private var restoring = false
+    private var nextTry = 0L
+    private var failCount = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -57,6 +60,8 @@ class KeepAliveService : Service() {
             val on = Prefs.getString(this, "block_state") == "1"
             val until = Prefs.getString(this, "block_until", "0").toLongOrNull() ?: 0L
             setWake(on)
+            // شبكة أمان: إن أُغلق القطع بأي طريقة أخرى، أعد الإعدادات السابقة
+            if (!on && Prefs.getString(this, "tp_active") == "1") { TimedProfile.leave(this); if (Prefs.getString(this, "bg_force", "1") != "1") return }
             val want = if (on && until > 0) until else 0L
             if (want != armedFor) { BgAlarm.schedule(this, want); armedFor = want }
             val text = when {
@@ -65,15 +70,34 @@ class KeepAliveService : Service() {
                 else -> "القطع مفعّل"
             }
             nm.notify(NOTIF_ID, buildNotif(text))
-            // انتهت المدة ولوحة المودم غير حيّة (أُغلق التطبيق): نبّه المستخدم ليفتحه فيستعيد الإنترنت
-            if (on && until > 0 && System.currentTimeMillis() > until + 10_000 && PanelBlock.web?.get() == null) {
-                if (!expiredNotified) {
-                    expiredNotified = true
-                    notifyExpired(nm)
-                    // يفتح التطبيق تلقائياً (إن سُمح له بالظهور فوق التطبيقات) فيستعيد الإنترنت ويوقف السويتش
-                    if (BgKeep.canLaunch(this)) runCatching { startActivity(launchIntent()) }
+            // انتهت المدة: استعد الإنترنت من الخدمة نفسها (WebView خلفي) دون انتظار الواجهة أو الشاشة
+            val now = System.currentTimeMillis()
+            if (on && until > 0 && now >= until) {
+                if (!restoring && now >= nextTry) {
+                    restoring = true
+                    scope.launch {
+                        val ok = runCatching { PanelHost.restore(this@KeepAliveService) }.getOrDefault(false)
+                        restoring = false
+                        if (ok) {
+                            failCount = 0
+                            notifyRestored(nm)
+                            if (Prefs.getString(this@KeepAliveService, "expire_launch", "1") == "1" && BgKeep.canLaunch(this@KeepAliveService))
+                                runCatching { startActivity(launchIntent()) }
+                            // أعد الدخول التلقائي والعمل في الخلفية إلى وضعهما السابق (قد يوقف الخدمة إن كان مطفأً في الأصل)
+                            TimedProfile.leave(this@KeepAliveService)
+                            if (Prefs.getString(this@KeepAliveService, "expire_stop_bg", "0") == "1") BgKeep.stop(this@KeepAliveService)
+                        } else {
+                            failCount++
+                            nextTry = System.currentTimeMillis() + 15_000
+                            // بعد 3 فشل متتالية نبّه المستخدم وافتح التطبيق يدوياً
+                            if (failCount == 3) {
+                                notifyExpired(nm)
+                                if (BgKeep.canLaunch(this@KeepAliveService)) runCatching { startActivity(launchIntent()) }
+                            }
+                        }
+                    }
                 }
-            } else expiredNotified = false
+            } else { failCount = 0; nextTry = 0L }
             // اقترب موعد الانتهاء: اصحُ عنده بالضبط بدل انتظار 5 ثوانٍ
             val toEnd = if (on && until > 0) until - System.currentTimeMillis() else Long.MAX_VALUE
             delay(if (toEnd in 1..5000) toEnd + 50 else 5000)
@@ -101,6 +125,17 @@ class KeepAliveService : Service() {
             .setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
             .setContentIntent(openApp())
             .build()
+
+    private fun notifyRestored(nm: NotificationManager) {
+        val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("انتهت مدة القطع")
+            .setContentText("أُعيد الإنترنت تلقائياً")
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true).setContentIntent(openApp())
+            .build()
+        nm.notify(EXPIRED_ID, n)
+    }
 
     private fun notifyExpired(nm: NotificationManager) {
         val n = NotificationCompat.Builder(this, CHANNEL_ALERT)
